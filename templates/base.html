@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}BioGIS{% endblock %}</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+    <style>
+        .main-content {
+            min-height: calc(100vh - 64px);
+        }
+    </style>
+</head>
+<body class="bg-slate-50">
+    <!-- Хедер -->
+    <nav class="bg-white border-b shadow-sm">
+        <div class="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
+            <div class="flex items-center gap-4">
+                <span class="text-2xl">🌍</span>
+                <h1 class="text-2xl font-semibold text-slate-800">BioGIS</h1>
+            </div>
+
+            <div class="flex items-center gap-6 text-sm">
+                {% if session.user %}
+                <a href="{{ url_for('index') }}"
+                   class="text-slate-600 hover:text-slate-900 transition-colors">Главная</a>
+
+                <a href="{{ url_for('analyzer') }}"
+                   class="text-slate-600 hover:text-slate-900 transition-colors font-medium">Анализатор</a>
+
+                <a href="{{ url_for('profile') }}"
+                   class="text-slate-600 hover:text-slate-900 transition-colors">Профиль</a>
+
+                <div class="flex items-center gap-3 pl-6 border-l">
+                    <div class="text-right">
+                        <div class="font-medium text-slate-800">{{ session.user.name }}</div>
+                        <div class="text-xs text-slate-500">
+                            {% if session.user.role == 'guest' %}Гость{% else %}Аккаунт{% endif %}
+                        </div>
+                    </div>
+                    <a href="{{ url_for('logout') }}"
+                       class="text-red-600 hover:text-red-700 transition-colors flex items-center gap-1">
+                        <i class="fas fa-sign-out-alt"></i>
+                    </a>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </nav>
+
+    <!-- Основной контент -->
+    <div class="main-content">
+        {% block content %}{% endblock %}
+    </div>
+
+    <!-- Футер -->
+    <footer class="bg-white border-t py-6 text-center text-slate-500 text-sm">
+        © 2026 BioGIS Tool • Для научных и образовательных целей
+    </footer>
+</body>
+</html>

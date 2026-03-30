@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BioGIS — Вход в систему</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            background: linear-gradient(135deg, #0f172a 0%, #1e2937 100%);
+        }
+        .card {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+        }
+    </style>
+</head>
+<body class="min-h-screen flex items-center justify-center">
+    <div class="card max-w-md w-full mx-4 p-10 rounded-3xl shadow-2xl">
+        <div class="text-center mb-10">
+            <h1 class="text-4xl font-bold text-slate-800 mb-2">BioGIS</h1>
+            <p class="text-slate-500 text-lg">Анализатор спутниковых снимков</p>
+        </div>
+
+        <div class="space-y-4">
+            <!-- Гость -->
+            <form method="POST" action="{{ url_for('login') }}">
+                <input type="hidden" name="mode" value="guest">
+                <button type="submit"
+                        class="w-full py-4 px-6 bg-emerald-600 hover:bg-emerald-700 text-white font-medium rounded-2xl transition-all flex items-center justify-center gap-3 text-lg">
+                    <span>👤</span>
+                    Продолжить как гость
+                </button>
+            </form>
+
+            <!-- Разделитель -->
+            <div class="relative py-4">
+                <div class="absolute inset-0 flex items-center">
+                    <div class="w-full border-t border-slate-300"></div>
+                </div>
+                <div class="relative flex justify-center text-sm">
+                    <span class="bg-white px-4 text-slate-500">или войдите в аккаунт</span>
+                </div>
+            </div>
+
+            <!-- Вход / Регистрация -->
+            <div class="grid grid-cols-2 gap-4">
+                <form method="POST" action="{{ url_for('login') }}">
+                    <input type="hidden" name="mode" value="login">
+                    <button type="submit"
+                            class="w-full py-4 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-2xl transition-all">
+                        Войти
+                    </button>
+                </form>
+
+                <form method="POST" action="{{ url_for('login') }}">
+                    <input type="hidden" name="mode" value="register">
+                    <button type="submit"
+                            class="w-full py-4 bg-slate-700 hover:bg-slate-800 text-white font-medium rounded-2xl transition-all">
+                        Регистрация
+                    </button>
+                </form>
+            </div>
+        </div>
+
+        <div class="mt-10 text-center text-xs text-slate-400">
+            Для научных и образовательных целей © 2026
+        </div>
+    </div>
+</body>
+</html>
