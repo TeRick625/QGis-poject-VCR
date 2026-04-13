@@ -4,7 +4,17 @@
 
 {% block content %}
 <div class="min-h-screen bg-slate-50"
-     x-data="{ currentTab: 0, polygon: null, uploadedFiles: [], isAnalyzing: false }">
+     x-data="{
+         currentTab: 0,
+         polygon: null,
+         uploadedFiles: [],
+         isAnalyzing: false,
+
+         /* Состояние режима результата */
+         mode: 'selection',
+         analysisHistory: [],
+         currentResultIndex: -1
+     }">
 
     <!-- Заголовок -->
     <div class="bg-white border-b shadow-sm py-4">
@@ -116,55 +126,111 @@
         </div>
         <!-- ====================== ВКЛАДКА 2 ====================== -->
         <div x-show="currentTab === 1" class="space-y-8">
+
             <h2 class="text-2xl font-semibold">2. Анализ и маски</h2>
 
-            <div class="grid grid-cols-12 gap-6 h-[680px]">
+            <!-- Кнопки переключения режимов -->
+            <div class="flex gap-3" x-show="analysisHistory.length > 0">
+                <button @click="switchMode('selection')"
+                        :class="{ 'bg-blue-600 text-white': mode === 'selection', 'bg-white border border-slate-300': mode === 'result' }"
+                        class="px-6 py-2 rounded-2xl font-medium transition-colors flex items-center gap-2">
+                    ← К выбору
+                </button>
+                <button @click="switchMode('result')"
+                        :class="{ 'bg-blue-600 text-white': mode === 'result', 'bg-white border border-slate-300': mode === 'selection' }"
+                        class="px-6 py-2 rounded-2xl font-medium transition-colors flex items-center gap-2">
+                    Результаты анализа →
+                </button>
+            </div>
 
-                <!-- Левая часть — 3 равные колонки -->
+            <!-- РЕЖИМ ВЫБОРА -->
+            <div x-show="mode === 'selection'" class="grid grid-cols-12 gap-6 h-[680px]">
                 <div class="col-span-7 grid grid-cols-3 gap-5 h-full">
-
-                    <!-- Колонка 1: Области интереса -->
                     <div class="bg-white rounded-3xl shadow p-5 flex flex-col">
                         <h3 class="font-medium mb-4">Области интереса</h3>
-                        <div id="areasList" class="flex-1 overflow-y-auto space-y-4 pr-2">
-                            <!-- Заполняется JS -->
-                        </div>
+                        <div id="areasList" class="flex-1 overflow-y-auto space-y-3 pr-2"></div>
+                        <button id="findImagesBtn" onclick="openFindImagesModal()" class="mt-4 w-full py-3 bg-amber-600 hover:bg-amber-700 disabled:bg-gray-400 text-white font-medium rounded-2xl text-sm transition-colors" disabled>Найти снимки для этой области</button>
                     </div>
-
-                    <!-- Колонка 2: Спутниковые снимки -->
                     <div class="bg-white rounded-3xl shadow p-5 flex flex-col">
                         <h3 class="font-medium mb-4">Спутниковые снимки</h3>
-                        <div id="satelliteList" class="flex-1 overflow-y-auto space-y-3 pr-2">
-                            <!-- Заполняется JS -->
-                        </div>
+                        <div id="satelliteList" class="flex-1 overflow-y-auto space-y-3 pr-2"></div>
                     </div>
-
-                    <!-- Колонка 3: Аэрофотоснимки (с тестовыми записями) -->
                     <div class="bg-white rounded-3xl shadow p-5 flex flex-col">
                         <h3 class="font-medium mb-4">Аэрофотоснимки</h3>
-                        <div id="aeroList" class="flex-1 overflow-y-auto space-y-3 pr-2">
-                            <!-- Заполняется JS -->
-                        </div>
+                        <div id="aeroList" class="flex-1 overflow-y-auto space-y-3 pr-2"></div>
                     </div>
                 </div>
 
-                <!-- Правая колонка — Нейросети + кнопка запуска -->
                 <div class="col-span-5 bg-white rounded-3xl shadow p-6 flex flex-col h-full">
                     <h3 class="font-medium mb-5">Доступные нейросети</h3>
-
-                    <div class="space-y-4 flex-1" id="nnList">
-                        <!-- Заполняется JS -->
-                    </div>
-
+                    <div class="space-y-4 flex-1" id="nnList"></div>
                     <button id="runAnalysisBtn"
-                            onclick="runAnalysis()"
+                            @click="runAnalysis()"
                             class="mt-6 w-full py-4 bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white font-medium rounded-2xl text-lg transition-colors"
                             disabled>
                         🚀 Запустить анализ
                     </button>
                 </div>
             </div>
+
+            <!-- РЕЖИМ РЕЗУЛЬТАТА -->
+            <div x-show="mode === 'result'" class="grid grid-cols-12 gap-6 h-[680px]">
+                <div class="col-span-7 grid grid-cols-3 gap-5 h-full">
+                    <div class="bg-white rounded-3xl shadow p-5 flex flex-col">
+                        <h3 class="font-medium mb-3">Оригинальный снимок</h3>
+                        <div id="resultOriginal" class="flex-1 bg-slate-100 rounded-2xl flex items-center justify-center text-slate-400 text-sm">Оригинальный снимок + полигон</div>
+                    </div>
+                    <div class="bg-white rounded-3xl shadow p-5 flex flex-col">
+                        <h3 class="font-medium mb-3">Результат анализа (тепловая карта)</h3>
+                        <div id="resultHeatmap" class="flex-1 bg-slate-100 rounded-2xl flex items-center justify-center text-slate-400 text-sm">Тепловая карта</div>
+                    </div>
+                    <div class="bg-white rounded-3xl shadow p-5 flex flex-col">
+                        <h3 class="font-medium mb-3" id="resultRightTitle">Загрузка аэрофотоснимка</h3>
+                        <div id="resultAeroArea" class="flex-1 bg-slate-100 rounded-2xl flex items-center justify-center text-slate-400 text-sm">Зона загрузки аэрофото</div>
+                    </div>
+                </div>
+
+                <div class="col-span-5 bg-white rounded-3xl shadow p-6 flex flex-col h-full">
+                    <h3 class="font-medium mb-4">История анализов</h3>
+                    <div id="analysisHistoryList" class="flex-1 overflow-y-auto space-y-3 pr-2"></div>
+
+                    <div class="mt-6 pt-6 border-t">
+                        <h4 class="text-sm font-medium mb-3">Тепловая шкала</h4>
+                        <div class="flex items-center gap-4">
+                            <div id="heatmapLegend" class="flex-1 h-8 rounded-2xl bg-gradient-to-r from-blue-500 via-yellow-400 to-red-500"></div>
+                            <div class="text-xs text-slate-500 leading-tight">низкая<br>плотность →<br>высокая</div>
+                        </div>
+                    </div>
+
+                    <div class="mt-6 pt-6 border-t">
+                        <h4 class="text-sm font-medium mb-3">Статистика и описание</h4>
+                        <div id="resultStats" class="bg-slate-50 rounded-2xl p-5 text-sm overflow-y-auto max-h-52">
+                            Здесь будет статистика анализа
+                        </div>
+                    </div>
+
+                    <button id="deepAnalysisBtn" onclick="startDeepAnalysis()" class="mt-auto w-full py-3 bg-amber-600 hover:bg-amber-700 text-white font-medium rounded-2xl text-sm transition-colors hidden">
+                        🔍 Углублённый анализ (добавить аэрофото)
+                    </button>
+                </div>
+            </div>
+
+            <!-- МОДАЛЬНОЕ ОКНО (остаётся на месте) -->
+            <div id="findImagesModal" class="hidden fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+                <div class="bg-white rounded-3xl shadow-2xl w-[920px] max-h-[85vh] flex flex-col overflow-hidden">
+                    <div id="modalHeader" class="bg-blue-600 text-white px-6 py-4 font-medium flex items-center justify-between">
+                        <span id="modalTitle">Необходима настройка для скачки спутникового снимка?</span>
+                        <button onclick="closeFindImagesModal()" class="text-white hover:text-slate-200 text-2xl leading-none">×</button>
+                    </div>
+                    <div id="modalContent" class="flex-1 p-6 overflow-y-auto"></div>
+                    <div class="px-6 py-4 border-t flex justify-between bg-slate-50">
+                        <button onclick="prevModalStep()" id="modalBackBtn" class="px-8 py-3 rounded-2xl border border-slate-300 hover:bg-slate-100 font-medium">Назад</button>
+                        <button onclick="nextModalStep()" id="modalNextBtn" class="px-8 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-medium">Далее</button>
+                    </div>
+                </div>
+            </div>
         </div>
+
         <!-- Заглушки остальных вкладок -->
         <div x-show="currentTab === 2" class="space-y-8 py-5">
             <h2 class="text-2xl font-semibold mb-4">3. Статистика</h2>
