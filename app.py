@@ -114,7 +114,8 @@ def analyzer():
     if "user" not in session:
         flash("Сначала войдите в систему", "warning")
         return redirect(url_for("login"))
-    return render_template("analyzer.html")
+    # return render_template("analyzer.html")
+    return render_template("analyzer_alpine.html")
 
 
 @app.route("/profile")

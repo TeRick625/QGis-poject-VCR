@@ -1,0 +1,598 @@
+{% extends "base.html" %}
+
+{% block title %}BioGIS — Анализатор{% endblock %}
+
+{% block content %}
+<div class="min-h-screen bg-slate-50" x-data="analyzer" x-init="$watch('currentTab', value => { if(value === 0) setTimeout(initializeMap, 200) })">
+    <!-- Заголовок -->
+    <div class="bg-white border-b shadow-sm py-4">
+        <div class="max-w-[1680px] mx-auto px-10">
+            <h1 class="text-3xl font-bold text-slate-800">Анализатор BioGIS</h1>
+        </div>
+    </div>
+
+    <!-- Вкладки — отцентрированные -->
+    <div class="bg-white border-b sticky top-0 z-50">
+        <div class="max-w-[1680px] mx-auto px-10">
+            <div class="flex justify-center border-b">
+                <button
+                    @click="currentTab = 0; initCurrentTab()"
+                    :class="{ 'border-b-4 border-blue-600 text-blue-600 font-medium': currentTab === 0 }"
+                    class="px-10 py-4 text-lg hover:text-blue-600 transition-colors">
+                    1. Выбор области и снимков
+                </button>
+                <button
+                    @click="currentTab = 1; initCurrentTab()"
+                    :class="{ 'border-b-4 border-blue-600 text-blue-600 font-medium': currentTab === 1 }"
+                    class="px-10 py-4 text-lg hover:text-blue-600 transition-colors">
+                    2. Анализ и маски
+                </button>
+                <button
+                    @click="currentTab = 2; initCurrentTab()"
+                    :class="{ 'border-b-4 border-blue-600 text-blue-600 font-medium': currentTab === 2 }"
+                    class="px-10 py-4 text-lg hover:text-blue-600 transition-colors">
+                    3. Статистика
+                </button>
+                <button
+                    @click="currentTab = 3; initCurrentTab()"
+                    :class="{ 'border-b-4 border-blue-600 text-blue-600 font-medium': currentTab === 3 }"
+                    class="px-10 py-4 text-lg hover:text-blue-600 transition-colors">
+                    4. Результаты и экспорт
+                </button>
+            </div>
+        </div>
+    </div>
+
+        <!-- Контент вкладок -->
+    <div class="max-w-[1680px] mx-auto px-0 py-8">
+        <!-- ====================== ВКЛАДКА 1 ====================== -->
+        <div x-show="currentTab === 0" class="space-y-8">
+            <h2 class="text-2xl font-semibold pl-6">1. Выбор области интереса и загрузка снимков</h2>
+
+            <div class="grid grid-cols-12 gap-6 h-[680px]">
+
+                <!-- Карта -->
+                <div class="col-span-7 bg-white rounded-3xl shadow p-4 h-full">
+                    <div id="map" class="w-full h-full rounded-2xl"></div>
+                </div>
+
+                <!-- Правая область — две колонки -->
+                <div class="col-span-5 grid grid-cols-2 gap-6 h-full">
+
+                    <!-- Левая колонка: Координаты + Области интереса -->
+                    <div class="flex flex-col h-full space-y-6">
+                        <div class="bg-white rounded-3xl shadow p-6 flex-shrink-0">
+                            <h3 class="font-medium mb-4">Задать область по координатам (4 точки)</h3>
+                            <div class="grid grid-cols-2 gap-3 text-sm">
+                                <div><label class="block text-slate-600 mb-1 text-xs">Точка 1</label>
+                                    <input id="coord1" placeholder="43.1155, 131.8855" class="w-full px-4 py-2.5 border border-slate-300 rounded-2xl text-sm focus:outline-none focus:border-blue-600"></div>
+                                <div><label class="block text-slate-600 mb-1 text-xs">Точка 2</label>
+                                    <input id="coord2" placeholder="43.2000, 131.9500" class="w-full px-4 py-2.5 border border-slate-300 rounded-2xl text-sm focus:outline-none focus:border-blue-600"></div>
+                                <div><label class="block text-slate-600 mb-1 text-xs">Точка 3</label>
+                                    <input id="coord3" placeholder="43.1800, 132.0500" class="w-full px-4 py-2.5 border border-slate-300 rounded-2xl text-sm focus:outline-none focus:border-blue-600"></div>
+                                <div><label class="block text-slate-600 mb-1 text-xs">Точка 4</label>
+                                    <input id="coord4" placeholder="43.1000, 131.9200" class="w-full px-4 py-2.5 border border-slate-300 rounded-2xl text-sm focus:outline-none focus:border-blue-600"></div>
+                            </div>
+                            <button @click="createPolygonFromCoords()"
+                                    class="mt-5 w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-2xl font-medium">
+                                Создать полигон
+                            </button>
+                        </div>
+
+                        <div class="flex-1 bg-white rounded-3xl shadow p-6 flex flex-col">
+                            <h3 class="font-medium mb-4">Области интереса</h3>
+                            <div id="polygonList" class="flex-1 overflow-y-auto space-y-3"></div>
+                        </div>
+                    </div>
+
+                    <!-- Правая колонка: Загрузка + Загруженные снимки -->
+                    <div class="flex flex-col h-full space-y-6">
+                        <div class="bg-white rounded-3xl shadow p-6 flex-shrink-0">
+                            <h3 class="font-medium mb-4">Загрузка спутниковых снимков</h3>
+                            <div id="dropZone"
+                                 class="border-2 border-dashed border-slate-300 hover:border-blue-500 rounded-3xl p-8 text-center transition-all cursor-pointer bg-slate-50 hover:bg-blue-50"
+                                 @drop="handleFiles($event.dataTransfer.files)"
+                                 @dragover.prevent
+                                 @dragleave.prevent>
+                                <div class="text-4xl mb-3">📤</div>
+                                <p class="font-medium">Перетащите файлы сюда</p>
+                                <label class="mt-4 inline-block px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-2xl cursor-pointer">
+                                    Выбрать файлы
+                                    <input type="file" id="fileInput" multiple class="hidden"
+                                           @change="handleFiles($event.target.files)">
+                                </label>
+                            </div>
+                        </div>
+                        <div class="flex-1 bg-white rounded-3xl shadow p-6 flex flex-col">
+                            <div class="flex justify-between items-center mb-4">
+                                <h3 class="font-medium">Загруженные снимки (<span x-text="uploadedFiles.length">0</span>)</h3>
+                                <button
+                                    @click="clearUploadedFiles()"
+                                    x-show="uploadedFiles.length > 0"
+                                    class="text-red-600 hover:text-red-700 text-sm">Очистить всё</button>
+                            </div>
+                            <div class="flex-1 overflow-y-auto space-y-2">
+                                <template x-for="(file, index) in uploadedFiles" :key="index">
+                                    <div class="flex items-center justify-between bg-slate-50 px-4 py-3 rounded-2xl">
+                                        <div class="flex items-center gap-3">
+                                            <span class="text-2xl">🖼️</span>
+                                            <div>
+                                                <p class="font-medium text-slate-800" x-text="file.name"></p>
+                                                <p class="text-xs text-slate-500" x-text="file.date"></p>
+                                            </div>
+                                        </div>
+                                        <button
+                                            @click="removeFile(index)"
+                                            class="text-red-500 hover:text-red-700 px-3 py-1 rounded-xl hover:bg-red-100">✕</button>
+                                    </div>
+                                </template>
+                                <p
+                                    x-show="uploadedFiles.length === 0"
+                                    class="text-slate-400 italic text-center py-8">
+                                    Пока нет загруженных снимков
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <!-- ====================== ВКЛАДКА 2 ====================== -->
+        <div x-show="currentTab === 1" class="space-y-8">
+
+            <h2 class="text-2xl font-semibold">2. Анализ и маски</h2>
+
+            <!-- Кнопки переключения режимов -->
+            <div class="flex gap-3" x-show="analysisHistory.length > 0">
+                <button @click="switchMode('selection')"
+                        :class="{ 'bg-blue-600 text-white': mode === 'selection', 'bg-white border border-slate-300': mode === 'result' }"
+                        class="px-6 py-2 rounded-2xl font-medium transition-colors flex items-center gap-2">
+                    ← К выбору
+                </button>
+                <button @click="switchMode('result')"
+                        :class="{ 'bg-blue-600 text-white': mode === 'result', 'bg-white border border-slate-300': mode === 'selection' }"
+                        class="px-6 py-2 rounded-2xl font-medium transition-colors flex items-center gap-2">
+                    Результаты анализа →
+                </button>
+            </div>
+
+            <!-- РЕЖИМ ВЫБОРА -->
+            <div x-show="mode === 'selection'" class="grid grid-cols-12 gap-6 h-[680px]">
+                <div class="col-span-7 grid grid-cols-3 gap-5 h-full">
+                    <div class="bg-white rounded-3xl shadow p-5 flex flex-col">
+                        <h3 class="font-medium mb-4">Области интереса</h3>
+                        <div class="space-y-3">
+                            <template x-for="area in areas" :key="area.id">
+                                <div class="rounded-2xl border border-slate-200 overflow-hidden">
+                                    <!-- ОБЫЧНЫЙ ПОЛИГОН -->
+                                    <template x-if="!area.hasSub">
+                                        <div
+                                            @click="selectItem('area', area)"
+                                            class="p-4 cursor-pointer transition-colors"
+                                            :class="selectedAreaId === area.id
+                                                ? 'bg-blue-50 ring-2 ring-blue-600'
+                                                : 'bg-slate-50 hover:bg-slate-100'">
+                                            <p class="font-medium" x-text="area.name"></p>
+                                            <p class="text-xs text-slate-500"
+                                               x-text="'Создан: ' + area.created + (area.size ? ' • ' + area.size : '')">
+                                            </p>
+                                        </div>
+                                    </template>
+                                    <!-- ПОЛИГОН С ПОДСПИСКОМ -->
+                                    <template x-if="area.hasSub">
+                                        <div>
+                                            <!-- HEADER -->
+                                            <div
+                                                @click="toggleSubList(area.id)"
+                                                class="p-4 cursor-pointer flex justify-between items-center transition-colors"
+                                                :class="openAreaId === area.id
+                                                    ? 'bg-blue-50 ring-2 ring-blue-600'
+                                                    : 'bg-slate-50 hover:bg-slate-100'">
+                                                <div>
+                                                    <p class="font-medium" x-text="area.name"></p>
+                                                    <p class="text-xs text-slate-500"
+                                                       x-text="'Создан: ' + area.created"></p>
+                                                </div>
+                                                <span class="text-xl transition-transform"
+                                                      :class="openAreaId === area.id ? 'rotate-90' : ''">›</span>
+                                            </div>
+                                            <!-- ПОДСПИСОК -->
+                                            <div x-show="openAreaId === area.id" class="px-4 pb-4 space-y-2">
+                                                <template x-for="sub in area.subItems" :key="sub.id">
+                                                    <div
+                                                        @click="selectSubItem(sub, area)"
+                                                        class="p-3 bg-white hover:bg-blue-50 rounded-xl cursor-pointer border transition-colors"
+                                                        :class="selectedItem?.id === sub.id
+                                                            ? 'ring-2 ring-blue-600 bg-blue-50'
+                                                            : ''">
+                                                        <p class="font-medium text-sm" x-text="sub.name"></p>
+                                                        <p class="text-xs text-slate-500"
+                                                           x-text="`Облачность: ${sub.cloud}% • Дата: ${sub.date}`">
+                                                        </p>
+                                                    </div>
+                                                </template>
+                                            </div>
+                                            <!-- ВЫБРАННЫЙ СНИМОК ИЗ ПОДСПИСКА -->
+                                            <div
+                                                x-show="selectedItem?.isSubItem && selectedItem?.parentPolygon === area.name"
+                                                class="px-4 pb-4">
+                                                <div class="text-xs text-slate-500 mb-1">Выбранный снимок:</div>
+                                                <div class="p-3 bg-blue-50 border border-blue-200 rounded-xl">
+                                                    <p class="font-medium text-sm" x-text="selectedItem?.name"></p>
+                                                    <p class="text-xs text-slate-500">Выбран для анализа</p>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </template>
+                                </div>
+                            </template>
+                        </div>
+                        <button
+                            @click="openFindImagesModal()"
+                            :disabled="!selectedItem || selectedItem.type !== 'area' || selectedItem.isSubItem"
+                            class="w-full mt-4 py-3 bg-amber-600 hover:bg-amber-700 disabled:bg-gray-400 text-white font-medium rounded-2xl text-sm transition-colors">
+                            Найти снимки для этой области
+                        </button>
+                    </div>
+                    <div class="bg-white rounded-3xl shadow p-5 flex flex-col">
+                        <h3 class="font-medium mb-4">Спутниковые снимки</h3>
+                        <div class="flex-1 overflow-y-auto space-y-3 pr-2">
+                            <template x-for="item in satellites" :key="item.id">
+                                <div
+                                    @click="selectItem('satellite', item)"
+                                    class="p-4 rounded-2xl cursor-pointer transition-colors"
+                                    :class="selectedSatelliteId === item.id
+                                        ? 'bg-blue-50 ring-2 ring-blue-600'
+                                        : 'bg-slate-50 hover:bg-slate-100'">
+                                    <p class="font-medium" x-text="item.name"></p>
+                                </div>
+                            </template>
+                        </div>
+                    </div>
+                    <div class="bg-white rounded-3xl shadow p-5 flex flex-col">
+                        <h3 class="font-medium mb-4">Аэрофотоснимки</h3>
+                        <div class="flex-1 overflow-y-auto space-y-3 pr-2">
+                            <template x-for="item in aeroImages" :key="item.id">
+                                <div
+                                    @click="selectItem('aero', item)"
+                                    class="p-4 rounded-2xl cursor-pointer transition-colors"
+                                    :class="selectedAeroId === item.id
+                                        ? 'bg-blue-50 ring-2 ring-blue-600'
+                                        : 'bg-slate-50 hover:bg-slate-100'">
+                                    <p class="font-medium" x-text="item.name"></p>
+                                </div>
+                            </template>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-span-5 bg-white rounded-3xl shadow p-6 flex flex-col h-full">
+                    <h3 class="font-medium mb-5">Доступные нейросети</h3>
+                    <div class="space-y-4 flex-1">
+                        <template x-for="nn in getFilteredNN()" :key="nn.id">
+                            <div
+                                @click="selectNN(nn)"
+                                class="nn-card p-5 rounded-3xl border transition-all cursor-pointer hover:shadow-md"
+                                :class="selectedNN?.id === nn.id
+                                    ? 'border-blue-600 bg-blue-50 ring-2 ring-blue-600 ring-inset'
+                                    : 'border-slate-200 hover:border-slate-300'">
+                                <h4 class="font-semibold" x-text="nn.name"></h4>
+                                <p class="text-sm text-slate-600 mt-2" x-text="nn.desc"></p>
+                            </div>
+                        </template>
+                    </div>
+                    <button
+                        @click="runAnalysis()"
+                        :disabled="!canRunAnalysis"
+                        class="mt-6 w-full py-4 bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white font-medium rounded-2xl text-lg transition-colors">
+                        🚀 Запустить анализ
+                    </button>
+                </div>
+            </div>
+
+            <!-- РЕЖИМ РЕЗУЛЬТАТА -->
+            <div x-show="mode === 'result'" class="grid grid-cols-12 gap-6 h-[680px]">
+                <div class="col-span-7 grid grid-cols-3 gap-5 h-full">
+                    <div class="bg-white rounded-3xl shadow p-5 flex flex-col">
+                        <h3 class="font-medium mb-3">Оригинальный снимок</h3>
+                        <div class="relative flex-1 bg-slate-100 rounded-2xl overflow-hidden">
+                            <!-- БАЗОВЫЙ СЛОЙ -->
+                            <div id="resultOriginal"
+                                 class="w-full h-full flex items-center justify-center text-slate-400 text-sm">
+                                Оригинальный снимок
+                            </div>
+                            <!-- 🔷 СЛОЙ ПОЛИГОНА -->
+                            <div
+                                x-show="isSatelliteWithPolygon"
+                                class="absolute inset-0 pointer-events-none"
+                                :style="'opacity:' + polygonOpacity">
+
+                                <div class="w-full h-full flex items-center justify-center text-blue-500 text-sm">
+                                    Полигон (overlay)
+                                </div>
+                            </div>
+                        </div>
+                        <!-- 🎛 Контрол прозрачности -->
+                        <div x-show="isSatelliteWithPolygon" class="mt-3">
+                            <label class="text-xs text-slate-500">Прозрачность полигона</label>
+                            <input type="range" min="0" max="1" step="0.1"
+                                   x-model="polygonOpacity"
+                                   class="w-full">
+                        </div>
+                    </div>
+                    <div class="bg-white rounded-3xl shadow p-5 flex flex-col">
+                        <h3 class="font-medium mb-3">Результат анализа (тепловая карта)</h3>
+                        <div class="relative flex-1 bg-slate-100 rounded-2xl overflow-hidden">
+                            <!-- БАЗОВАЯ ТЕПЛОВАЯ КАРТА -->
+                            <div id="resultHeatmap"
+                                 class="w-full h-full flex items-center justify-center text-slate-400 text-sm">
+                                Тепловая карта
+                            </div>
+                            <!-- 🔴 СЛОЙ УТОЧНЕННОГО АНАЛИЗА -->
+                            <div
+                                x-show="isSatelliteWithAero"
+                                class="absolute inset-0"
+                                :style="'opacity:' + aeroOverlayOpacity">
+
+                                <div class="w-full h-full flex items-center justify-center text-red-500 text-sm">
+                                    Уточненный анализ (overlay)
+                                </div>
+                            </div>
+
+                        </div>
+                        <!-- 🎛 Контрол -->
+                        <div x-show="isSatelliteWithAero" class="mt-3">
+                            <label class="text-xs text-slate-500">Прозрачность уточненного анализа</label>
+                            <input type="range" min="0" max="1" step="0.1"
+                                   x-model="aeroOverlayOpacity"
+                                   class="w-full">
+                        </div>
+                    </div>
+                    <div class="bg-white rounded-3xl shadow p-5 flex flex-col">
+                        <h3 class="font-medium mb-3" id="resultRightTitle">Загрузка аэрофотоснимка</h3>
+                        <div class="flex-1">
+                            <!-- 🟨 1. СПУТНИК (нужно загрузить аэро) -->
+                            <div x-show="isSatelliteBasic" class="h-full flex flex-col justify-center">
+                                <div class="text-xs text-red-500 mb-3 text-center">
+                                    ⚠️ Некорректный файл (формат, координаты, область) может привести к ошибкам анализа
+                                </div>
+                                <div class="border-2 border-dashed border-slate-300 p-6 rounded-2xl text-center">
+                                    <input type="file"
+                                           class="mb-2"
+                                           @change="handleAeroUpload($event)">
+                                    <p class="text-sm text-slate-500">Загрузите аэрофото</p>
+                                </div>
+                                <button
+                                    class="mt-4 w-full py-3 bg-amber-600 hover:bg-amber-700 disabled:bg-gray-400 text-white rounded-2xl text-sm"
+                                    :disabled="!uploadedAeroFile"
+                                    @click="activateDeepAnalysis()">
+                                    🔍 Углубленный анализ
+                                </button>
+                            </div>
+                            <!-- 🔴 2. ПОСЛЕ УГЛУБЛЕННОГО АНАЛИЗА -->
+                            <div x-show="isSatelliteWithAero"
+                                 class="h-full flex items-center justify-center text-slate-400 text-sm">
+                                Аэрофото применено
+                            </div>
+                            <!-- 🟩 3. АЭРО РЕЖИМ -->
+                            <div x-show="isAeroFull"
+                                 class="h-full flex items-center justify-center text-slate-400 text-sm">
+                                Результат аэрофото анализа
+                            </div>
+                            <!-- 🔷 4. СПУТНИК ИЗ ПОЛИГОНА -->
+                            <div x-show="isSatelliteWithPolygon"
+                                 class="h-full flex items-center justify-center text-slate-400 text-sm">
+                                Снимок связан с полигоном
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-span-5 bg-white rounded-3xl shadow p-6 flex flex-col h-full">
+                    <h3 class="font-medium mb-4">История анализов</h3>
+                    <div class="flex-1 overflow-y-auto space-y-3 pr-2">
+                        <template x-for="(item, i) in analysisHistory" :key="item.id">
+                            <div
+                                @click="selectHistoryItem(i)"
+                                class="p-4 rounded-2xl cursor-pointer transition-all"
+                                :class="i === currentResultIndex
+                                    ? 'bg-blue-50 border border-blue-600'
+                                    : 'bg-slate-50 hover:bg-slate-100'">
+                                <div class="flex justify-between text-sm">
+                                    <span class="font-medium" x-text="item.nnName"></span>
+                                    <span class="text-slate-500" x-text="item.timestamp"></span>
+                                </div>
+                                <p class="text-xs text-slate-600 mt-1" x-text="item.itemName"></p>
+                            </div>
+                        </template>
+                    </div>
+                    <div class="mt-6 pt-6 border-t">
+                        <h4 class="text-sm font-medium mb-3">Тепловая шкала</h4>
+                        <div class="flex items-center gap-4">
+                            <div id="heatmapLegend" class="flex-1 h-8 rounded-2xl bg-gradient-to-r from-blue-500 via-yellow-400 to-red-500"></div>
+                            <div class="text-xs text-slate-500 leading-tight">низкая<br>плотность →<br>высокая</div>
+                        </div>
+                    </div>
+                    <div class="mt-6 pt-6 border-t">
+                        <h4 class="text-sm font-medium mb-3">Статистика и описание</h4>
+                        <div id="resultStats" class="bg-slate-50 rounded-2xl p-5 text-sm overflow-y-auto max-h-52">
+                            Здесь будет статистика анализа
+                        </div>
+                    </div>
+                    <button
+                        id="deepAnalysisBtn"
+                        x-show="isSatelliteBasic"
+                        :disabled="!uploadedAeroFile"
+                        @click="activateDeepAnalysis()"
+                        class="mt-auto w-full py-3 bg-amber-600 hover:bg-amber-700 text-white font-medium rounded-2xl text-sm transition-colors">
+                        🔍 Углублённый анализ (добавить аэрофото)
+                    </button>
+                </div>
+            </div>
+
+            <!-- ====================== МОДАЛЬНОЕ ОКНО "Найти снимки" ====================== -->
+            <div x-show="isFindModalOpen"
+                 class="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+                <div class="bg-white rounded-3xl shadow-2xl w-[920px] max-h-[85vh] flex flex-col overflow-hidden">
+                    <!-- Заголовок -->
+                    <div class="bg-blue-600 text-white px-6 py-4 font-medium flex items-center justify-between">
+                        <span x-text="modalTitleText"></span>
+                        <button @click="closeFindImagesModal()"
+                                class="text-white hover:text-slate-200 text-2xl leading-none">×</button>
+                    </div>
+                    <!-- Контент шагов -->
+                    <div class="flex-1 p-6 overflow-y-auto">
+                        <!-- Шаг 1: Фильтры -->
+                        <div x-show="currentModalStep === 1">
+                            <div class="space-y-6">
+                                <div class="p-5 bg-slate-50 rounded-3xl">
+                                    <label class="block text-sm font-medium mb-2">Облачность (%)</label>
+                                    <input type="range" min="0" max="100" value="30" class="w-full accent-blue-600">
+                                    <div class="flex justify-between text-xs text-slate-500 mt-1"><span>0%</span><span>100%</span></div>
+                                </div>
+                                <div class="p-5 bg-slate-50 rounded-3xl">
+                                    <label class="block text-sm font-medium mb-2">Период (сезон)</label>
+                                    <select class="w-full p-3 border border-slate-300 rounded-3xl text-sm">
+                                        <option>Любой</option>
+                                        <option>Весна</option>
+                                        <option>Лето</option>
+                                        <option>Осень</option>
+                                        <option>Зима</option>
+                                    </select>
+                                </div>
+                                <div class="p-5 bg-slate-50 rounded-3xl">
+                                    <label class="block text-sm font-medium mb-2">Актуальность (год или промежуток лет)</label>
+                                    <div class="flex gap-3">
+                                        <input type="number" value="2023" class="flex-1 p-3 border border-slate-300 rounded-3xl text-sm">
+                                        <span class="self-center text-slate-400 text-lg">—</span>
+                                        <input type="number" value="2025" class="flex-1 p-3 border border-slate-300 rounded-3xl text-sm">
+                                    </div>
+                                </div>
+                                <button @click="showNoImagesFound()"
+                                        class="w-full py-3 text-red-600 border border-red-300 hover:bg-red-50 rounded-3xl text-sm font-medium">
+                                    Имитация: снимки не найдены
+                                </button>
+                            </div>
+                        </div>
+                        <!-- Шаг 2: Список найденных снимков -->
+                        <div x-show="currentModalStep === 2" class="flex gap-4 h-[460px]">
+                            <div class="flex-1 flex flex-col">
+                                <div class="text-xs text-slate-500 mb-3 flex justify-between items-baseline">
+                                    <span>Список (с указанием дат и облачности)</span>
+                                    <span class="text-blue-600 cursor-pointer underline">Сортировать по актуальности ↓</span>
+                                </div>
+                                <div class="flex-1 overflow-y-auto space-y-2 pr-2">
+                                    <template x-for="img in fakeFoundImages" :key="img.id">
+                                        <div
+                                            @click="toggleImageSelection(img.id)"
+                                            class="flex justify-between items-center px-4 py-3 bg-white border border-slate-200 rounded-2xl cursor-pointer hover:border-blue-300 text-sm">
+                                            <div class="flex-1">
+                                                <div class="font-medium" x-text="img.name"></div>
+                                                <div class="text-xs text-slate-500" x-text="img.date + ' • облачность ' + img.cloud + '%'"></div>
+                                            </div>
+                                            <input type="checkbox" :checked="selectedImageIds.includes(img.id)" class="w-5 h-5 accent-blue-600 pointer-events-none">
+                                        </div>
+                                    </template>
+                                </div>
+                                <div class="text-xs text-slate-400 mt-2 text-right">
+                                    Выбрано: <span class="font-medium text-slate-700" x-text="selectedImageIds.length + ' из ' + fakeFoundImages.length"></span>
+                                </div>
+                            </div>
+                            <div class="w-80 bg-slate-100 rounded-3xl flex items-center justify-center text-slate-400 text-sm text-center">
+                                Предпросмотр<br>нажмите на снимок слева
+                            </div>
+                        </div>
+                        <!-- Шаг 3: Подтверждение выбора -->
+                        <div x-show="currentModalStep === 3" class="flex gap-4 h-[460px]">
+                            <div class="flex-1">
+                                <div class="text-xs text-slate-500 mb-3">Список выбранных снимков</div>
+                                <div class="flex-1 overflow-y-auto space-y-2">
+                                    <template x-for="img in selectedImages" :key="img.id">
+                                        <div class="flex justify-between items-center px-4 py-3 bg-white border border-slate-200 rounded-2xl text-sm">
+                                            <div>
+                                                <div class="font-medium" x-text="img.name"></div>
+                                                <div class="text-xs text-slate-500" x-text="img.date + ' • ' + img.cloud + '%'"></div>
+                                            </div>
+                                            <button
+                                                @click="removeFromConfirm(img.id); $event.stopImmediatePropagation()"
+                                                class="text-red-500 text-xs hover:underline">убрать</button>
+                                        </div>
+                                    </template>
+                                </div>
+                            </div>
+                            <div class="w-80 bg-slate-100 rounded-3xl flex items-center justify-center text-slate-400 text-sm">
+                                Предпросмотр
+                            </div>
+                        </div>
+                        <!-- Шаг 4: Снимки не найдены -->
+                        <div x-show="currentModalStep === 4" class="flex flex-col items-center justify-center h-80 text-center">
+                            <div class="text-6xl mb-6">😕</div>
+                            <p class="font-medium text-lg">По заданным параметрам ничего не найдено</p>
+                            <p class="text-slate-500 mt-2">Попробуйте изменить фильтры</p>
+                        </div>
+                    </div>
+                    <!-- Футер с кнопками -->
+                    <div class="px-6 py-4 border-t flex justify-between bg-slate-50">
+                        <button
+                            @click="prevModalStep()"
+                            class="px-8 py-3 rounded-2xl border border-slate-300 hover:bg-slate-100 font-medium"
+                            :class="{ 'invisible': currentModalStep === 1 || currentModalStep === 4 }">
+                            Назад
+                        </button>
+                        <button
+                            @click="nextModalStep()"
+                            class="px-8 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-medium">
+                            Далее
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Заглушки остальных вкладок -->
+        <div x-show="currentTab === 2" class="space-y-8 py-5">
+            <h2 class="text-2xl font-semibold mb-4">3. Статистика</h2>
+            <p class="text-slate-600">Здесь будут графики и таблицы</p>
+        </div>
+        <div x-show="currentTab === 3" class="space-y-8 py-5">
+            <h2 class="text-2xl font-semibold mb-4">4. Результаты и экспорт</h2>
+            <p class="text-slate-600">Здесь будет экспорт результатов</p>
+        </div>
+    </div>
+</div>
+
+
+<!-- ====================== СКРИПТЫ ====================== -->
+<script src="https://cdn.tailwindcss.com"></script>
+
+<!-- Leaflet + Leaflet.draw -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css" />
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.js"></script>
+
+<script src="{{ url_for('static', filename='js/analyzer_alpine.js') }}" defer></script>
+<script src="{{ url_for('static', filename='js/alpine.js') }}" defer></script>
+<script src="{{ url_for('static', filename='js/map.js') }}" defer></script>
+<script src="{{ url_for('static', filename='js/api.js') }}" defer></script>
+
+
+<script>
+    // Инициализация Tailwind
+    tailwind.config = { content: ["./**/*.html"] }
+
+    // Инициализация карты (остаётся глобальной, т.к. Leaflet)
+    function initializeMap() {
+        if (typeof window.initMap === 'function') {
+            setTimeout(() => {
+                window.initMap();
+            }, 150);
+        }
+    }
+
+    // Запуск карты при загрузке страницы
+    document.addEventListener('DOMContentLoaded', function() {
+        initializeMap();
+    });
+</script>
+{% endblock %}
