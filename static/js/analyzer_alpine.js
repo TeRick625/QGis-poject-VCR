@@ -100,7 +100,7 @@ document.addEventListener('alpine:init', () => {
 
             if (type === 'area') this.state.selectedAreaId = item.id;
             if (type === 'satellite') this.state.selectedSatelliteId = item.id;
-            if (type === 'aero') this.selectedAeroId = item.id;
+            if (type === 'aero') this.state.selectedAeroId = item.id;
         },
 
         toggleSubList(areaId) {
