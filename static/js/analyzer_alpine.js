@@ -1,132 +1,61 @@
+import { state } from '/static/js/state/store.js';
+
 document.addEventListener('alpine:init', () => {
     Alpine.data('analyzer', () => ({
-
-        currentTab: 0,
-        mode: 'selection',
-        uploadedFiles: [],
-
-        areas: [
-            {
-                id: 1,
-                name: 'Полигон Приморский',
-                created: '05.04.2026',
-                size: '124 га',
-                hasSub: false
-            },
-            {
-                id: 2,
-                name: 'Тестовая область (модальное окно)',
-                created: '06.04.2026',
-                hasSub: true,
-                subItems: [
-                    { id: 101, name: 'Sentinel-2_2025_04_12.tif', cloud: 12, date: '12.04.2025' },
-                    { id: 102, name: 'Landsat_8_2025_03_28.tif', cloud: 8, date: '28.03.2025' }
-                ]
-            }
-        ],
-        openAreaId: null,
-
-        satellites: [{ id: 1, name: 'Sentinel-2_2025_04_12.tif' }],
-        aeroImages: [
-            { id: 1, name: 'Aero_2025_04_12.tif' },
-            { id: 2, name: 'Aero_test_01.png' },
-            { id: 3, name: 'Aero_winter_2024.jpg' }
-        ],
-
-        neuralNetworks: [
-            { id: 1, name: "Satellite Segmentation", desc: "Сегментация спутниковых снимков", type: "satellite" },
-            { id: 2, name: "Aero Photo Analyzer", desc: "Анализ аэрофотоснимков", type: "aero" },
-            { id: 3, name: "Universal Classifier", desc: "Универсальная модель", type: "universal" }
-        ],
-
-        selectedAreaId: null,
-        selectedSatelliteId: null,
-        selectedAeroId: null,
-
-        selectedItem: null,
-        selectedNN: null,
-
-        analysisHistory: [],
-        currentResultIndex: -1,
-
-        isFindModalOpen: false,
-        currentModalStep: 1,
-        selectedImageIds: [],
-
-        fakeFoundImages: [
-            {id:1, date:'2025-03-15', cloud:12, name:'SN-20250315-1432'},
-            {id:2, date:'2025-03-12', cloud:8,  name:'SN-20250312-0911'},
-            {id:3, date:'2025-03-10', cloud:25, name:'SN-20250310-1845'},
-            {id:4, date:'2025-03-08', cloud:5,  name:'SN-20250308-1123'},
-            {id:5, date:'2025-03-05', cloud:18, name:'SN-20250305-0741'},
-            {id:6, date:'2025-03-03', cloud:9,  name:'SN-20250303-1522'},
-            {id:7, date:'2025-03-01', cloud:3,  name:'SN-20250301-2210'},
-            {id:8, date:'2025-02-28', cloud:15, name:'SN-20250228-0915'}
-        ],
-
-        isAnalyzing: false,
-
-        resultViewType: null, // тип отображения результата
-
-        polygonOpacity: 0.5,
-        aeroOverlayOpacity: 0.6,
-
-        uploadedAeroFile: null,
-        deepAnalysisEnabled: false,
-        activeResult: null,
+        state,
 
         openFindImagesModal() {
-            if (!this.selectedItem || this.selectedItem.type !== 'area') return;
-            this.currentModalStep = 1;
-            this.selectedImageIds = [];
-            this.isFindModalOpen = true;
+            if (!this.state.selectedItem || this.state.selectedItem.type !== 'area') return;
+            this.state.currentModalStep = 1;
+            this.state.selectedImageIds = [];
+            this.state.isFindModalOpen = true;
         },
 
         closeFindImagesModal() {
-            this.isFindModalOpen = false;
+            this.state.isFindModalOpen = false;
         },
 
         get selectedImages() {
-            return this.fakeFoundImages.filter(img => this.selectedImageIds.includes(img.id));
+            return this.state.fakeFoundImages.filter(img => this.state.selectedImageIds.includes(img.id));
         },
 
         init() {
             console.log("✅ Alpine 'analyzer' компонент инициализирован");
-            this.$watch('currentTab', (newValue) => {
+            this.$watch('state.currentTab', (newValue) => {
                 this.initCurrentTab();
             });
             this.$nextTick(() => {
                 this.initCurrentTab();
             });
-            this.$watch('polygonOpacity', (val) => {
-                if (this.activeResult) this.activeResult.polygonOpacity = val;
+            this.$watch('state.polygonOpacity', (val) => {
+                if (this.state.activeResult) this.state.activeResult.polygonOpacity = val;
             });
 
-            this.$watch('aeroOverlayOpacity', (val) => {
-                if (this.activeResult) this.activeResult.aeroOverlayOpacity = val;
+            this.$watch('state.aeroOverlayOpacity', (val) => {
+                if (this.state.activeResult) this.state.activeResult.aeroOverlayOpacity = val;
             });
 
-            this.$watch('uploadedAeroFile', (val) => {
-                if (this.activeResult) this.activeResult.uploadedAeroFile = val;
+            this.$watch('state.uploadedAeroFile', (val) => {
+                if (this.state.activeResult) this.state.activeResult.uploadedAeroFile = val;
             });
 
-            this.$watch('deepAnalysisEnabled', (val) => {
-                if (this.activeResult) this.activeResult.deepAnalysisEnabled = val;
+            this.$watch('state.deepAnalysisEnabled', (val) => {
+                if (this.state.activeResult) this.state.activeResult.deepAnalysisEnabled = val;
             });
 
-            this.$watch('resultViewType', (val) => {
-                if (this.activeResult) this.activeResult.resultViewType = val;
+            this.$watch('state.resultViewType', (val) => {
+                if (this.state.activeResult) this.state.activeResult.resultViewType = val;
             });
         },
 
         initCurrentTab() {
-            if (this.currentTab === 0) {
+            if (this.state.currentTab === 0) {
                 this.initTab1();
-            } else if (this.currentTab === 1) {
+            } else if (this.state.currentTab === 1) {
                 this.initTab2();
-            } else if (this.currentTab === 2) {
+            } else if (this.state.currentTab === 2) {
                 this.initTab3();
-            } else if (this.currentTab === 3) {
+            } else if (this.state.currentTab === 3) {
                 this.initTab4();
             }
         },
@@ -150,18 +79,18 @@ document.addEventListener('alpine:init', () => {
         },
 
         resetAllSelection() {
-            this.selectedItem = null;
-            this.selectedNN = null;
-            this.selectedAreaId = null;
-            this.selectedSatelliteId = null;
-            this.selectedAeroId = null;
-            this.openAreaId = null;
+            this.state.selectedItem = null;
+            this.state.selectedNN = null;
+            this.state.selectedAreaId = null;
+            this.state.selectedSatelliteId = null;
+            this.state.selectedAeroId = null;
+            this.state.openAreaId = null;
         },
 
         selectItem(type, item) {
             this.resetAllSelection();
 
-            this.selectedItem = {
+            this.state.selectedItem = {
                 type: type,
                 id: item.id,
                 name: item.name,
@@ -169,28 +98,28 @@ document.addEventListener('alpine:init', () => {
             };
 
 
-            if (type === 'area') this.selectedAreaId = item.id;
-            if (type === 'satellite') this.selectedSatelliteId = item.id;
+            if (type === 'area') this.state.selectedAreaId = item.id;
+            if (type === 'satellite') this.state.selectedSatelliteId = item.id;
             if (type === 'aero') this.selectedAeroId = item.id;
         },
 
         toggleSubList(areaId) {
             this.resetAllSelection();
 
-            if (this.openAreaId === areaId) {
-                this.openAreaId = null;
+            if (this.state.openAreaId === areaId) {
+                this.state.openAreaId = null;
             } else {
-                this.openAreaId = areaId;
+                this.state.openAreaId = areaId;
 
-                const area = this.areas.find(a => a.id === areaId);
+                const area = this.state.areas.find(a => a.id === areaId);
                 if (area) {
-                    this.selectedItem = {
+                    this.state.selectedItem = {
                         type: 'area',
                         id: area.id,
                         name: area.name,
                         isSubItem: false
                     };
-                    this.selectedAreaId = area.id;
+                    this.state.selectedAreaId = area.id;
                 }
             }
         },
@@ -198,7 +127,7 @@ document.addEventListener('alpine:init', () => {
         selectSubItem(sub, area) {
             this.resetAllSelection();
 
-            this.selectedItem = {
+            this.state.selectedItem = {
                 type: 'satellite_from_area',
                 id: sub.id,
                 name: sub.name,
@@ -208,16 +137,16 @@ document.addEventListener('alpine:init', () => {
         },
 
         getFilteredNN() {
-            if (!this.selectedItem) return this.neuralNetworks;
+            if (!this.state.selectedItem) return this.state.neuralNetworks;
 
-            return this.neuralNetworks.filter(nn => {
-                if (this.selectedItem.type === 'area' && !this.selectedItem.isSubItem) {
+            return this.state.neuralNetworks.filter(nn => {
+                if (this.state.selectedItem.type === 'area' && !this.state.selectedItem.isSubItem) {
                     return nn.type === 'universal';
                 }
-                if (this.selectedItem.type === 'satellite' || this.selectedItem.type === 'satellite_from_area') {
+                if (this.state.selectedItem.type === 'satellite' || this.state.selectedItem.type === 'satellite_from_area') {
                     return nn.type !== 'aero';
                 }
-                if (this.selectedItem.type === 'aero') {
+                if (this.state.selectedItem.type === 'aero') {
                     return nn.type !== 'satellite';
                 }
                 return true;
@@ -225,68 +154,68 @@ document.addEventListener('alpine:init', () => {
         },
 
         selectNN(nn) {
-            if (this.selectedNN && this.selectedNN.id === nn.id) {
-                this.selectedNN = null;
+            if (this.state.selectedNN && this.state.selectedNN.id === nn.id) {
+                this.state.selectedNN = null;
                 return;
             }
 
-            this.selectedNN = {
+            this.state.selectedNN = {
                 id: nn.id,
                 name: nn.name
             };
         },
 
         runAnalysis() {
-            if (!this.selectedItem || !this.selectedNN) return;
+            if (!this.state.selectedItem || !this.state.selectedNN) return;
 
             const newResult = {
                 id: Date.now(),
                 timestamp: new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }),
 
-                type: this.selectedItem.type === 'aero' ? 'aero' : 'satellite',
-                itemName: this.selectedItem.name,
-                nnName: this.selectedNN.name || `NN #${this.selectedNN.id}`,
-                hasPolygon: this.selectedItem.isSubItem || this.selectedItem.type === 'area',
+                type: this.state.selectedItem.type === 'aero' ? 'aero' : 'satellite',
+                itemName: this.state.selectedItem.name,
+                nnName: this.state.selectedNN.name || `NN #${this.state.selectedNN.id}`,
+                hasPolygon: this.state.selectedItem.isSubItem || this.state.selectedItem.type === 'area',
 
                 // 🔥 НОВОЕ — СОСТОЯНИЕ UI
                 resultViewType: this.determineResultViewType(),
                 polygonOpacity: 0.5,
                 aeroOverlayOpacity: 0.6,
-                uploadedAeroFile: null,
+                uploadedAeroFile: null, // стремный момент ??????
                 deepAnalysisEnabled: false,
             };
 
-            this.resultViewType = this.determineResultViewType();
-            this.uploadedAeroFile = null;
-            this.deepAnalysisEnabled = false;
+            this.state.resultViewType = this.determineResultViewType();
+            this.state.uploadedAeroFile = null;
+            this.state.deepAnalysisEnabled = false;
 
-            this.analysisHistory.unshift(newResult);
-            this.activeResult = newResult;
-            this.currentResultIndex = 0;
+            this.state.analysisHistory.unshift(newResult);
+            this.state.activeResult = newResult;
+            this.state.currentResultIndex = 0;
             this.applyResultState();
-            this.mode = 'result';
+            this.state.mode = 'result';
 
             this.switchMode('result');
         },
 
         applyResultState() {
-            if (!this.activeResult) return;
+            if (!this.state.activeResult) return;
 
-            this.resultViewType = this.activeResult.resultViewType;
+            this.state.resultViewType = this.state.activeResult.resultViewType;
 
-            this.polygonOpacity = this.activeResult.polygonOpacity;
-            this.aeroOverlayOpacity = this.activeResult.aeroOverlayOpacity;
+            this.state.polygonOpacity = this.state.activeResult.polygonOpacity;
+            this.state.aeroOverlayOpacity = this.state.activeResult.aeroOverlayOpacity;
 
-            this.uploadedAeroFile = this.activeResult.uploadedAeroFile;
-            this.deepAnalysisEnabled = this.activeResult.deepAnalysisEnabled;
+            this.state.uploadedAeroFile = this.state.activeResult.uploadedAeroFile;
+            this.state.deepAnalysisEnabled = this.state.activeResult.deepAnalysisEnabled;
         },
 
         switchMode(newMode) {
-            this.mode = newMode;
+            this.state.mode = newMode;
 
             if (newMode === 'result') {
-                if (this.analysisHistory.length > 0 && !this.activeResult) {
-                    this.activeResult = this.analysisHistory[0];
+                if (this.state.analysisHistory.length > 0 && !this.state.activeResult) {
+                    this.state.activeResult = this.state.analysisHistory[0];
                 }
                 this.applyResultState();
                 this.renderResultMode();
@@ -299,49 +228,49 @@ document.addEventListener('alpine:init', () => {
 
         renderResultMode() {
 
-            console.log(`Режим результата активирован. Всего записей в истории: ${this.analysisHistory.length}`);
+            console.log(`Режим результата активирован. Всего записей в истории: ${this.state.analysisHistory.length}`);
         },
 
         selectHistoryItem(index) {
-            this.currentResultIndex = index;
-            this.activeResult = this.analysisHistory[index];
+            this.state.currentResultIndex = index;
+            this.state.activeResult = this.state.analysisHistory[index];
 
             this.applyResultState();
             this.renderResultMode();
         },
 
         toggleImageSelection(id) {
-            if (this.selectedImageIds.includes(id)) {
-                this.selectedImageIds = this.selectedImageIds.filter(i => i !== id);
+            if (this.state.selectedImageIds.includes(id)) {
+                this.state.selectedImageIds = this.state.selectedImageIds.filter(i => i !== id);
             } else {
-                this.selectedImageIds.push(id);
+                this.state.selectedImageIds.push(id);
             }
         },
 
         removeFromConfirm(id) {
-            this.selectedImageIds = this.selectedImageIds.filter(i => i !== id);
+            this.state.selectedImageIds = this.state.selectedImageIds.filter(i => i !== id);
         },
 
         showNoImagesFound() {
-            this.currentModalStep = 4;
+            this.state.currentModalStep = 4;
         },
 
         nextModalStep() {
-            if (this.currentModalStep === 4) {
-                this.currentModalStep = 1;
+            if (this.state.currentModalStep === 4) {
+                this.state.currentModalStep = 1;
                 return;
             }
-            if (this.currentModalStep === 3) {
+            if (this.state.currentModalStep === 3) {
                 this.addSelectedImagesToPolygon();
                 this.closeFindImagesModal();
                 return;
             }
-            this.currentModalStep++;
+            this.state.currentModalStep++;
         },
 
         prevModalStep() {
-            if (this.currentModalStep === 1 || this.currentModalStep === 4) return;
-            this.currentModalStep--;
+            if (this.state.currentModalStep === 1 || this.state.currentModalStep === 4) return;
+            this.state.currentModalStep--;
         },
 
         addSelectedImagesToPolygon() {
@@ -353,15 +282,15 @@ document.addEventListener('alpine:init', () => {
             const file = event.target.files[0];
             if (!file) return;
 
-            this.uploadedAeroFile = file;
+            this.state.uploadedAeroFile = file;
             console.log('📷 Загружено аэрофото:', file.name);
         },
 
         activateDeepAnalysis() {
-            if (!this.uploadedAeroFile) return;
+            if (!this.state.uploadedAeroFile) return;
 
-            this.deepAnalysisEnabled = true;
-            this.resultViewType = 'satellite_with_aero';
+            this.state.deepAnalysisEnabled = true;
+            this.state.resultViewType = 'satellite_with_aero';
 
             console.log('🚀 Углубленный анализ активирован');
         },
@@ -372,7 +301,7 @@ document.addEventListener('alpine:init', () => {
             Array.from(files).forEach(async (file) => {
                 const result = await this.uploadFile(file);
                 if (result && result.success) {
-                    this.uploadedFiles.push(result);
+                    this.state.uploadedFiles.push(result);
                     this.renderUploadedFiles();
                 }
             });
@@ -407,58 +336,58 @@ document.addEventListener('alpine:init', () => {
 
         renderUploadedFiles() {
 
-            console.log(`Загружено файлов: ${this.uploadedFiles.length}`);
+            console.log(`Загружено файлов: ${this.state.uploadedFiles.length}`);
         },
 
         removeFile(index) {
-            this.uploadedFiles.splice(index, 1);
+            this.state.uploadedFiles.splice(index, 1);
         },
 
         clearUploadedFiles() {
             if (confirm("Очистить все загруженные снимки?")) {
-                this.uploadedFiles = [];
+                this.state.uploadedFiles = [];
             }
         },
 
         get canRunAnalysis() {
-            return !!(this.selectedItem && this.selectedNN);
+            return !!(this.state.selectedItem && this.state.selectedNN);
         },
 
         get modalTitleText() {
-            if (this.currentModalStep === 1) return 'Необходима настройка для скачки спутникового снимка?';
-            if (this.currentModalStep === 2) return `Найдено ${this.fakeFoundImages.length} снимков. Выберите даты для предпросмотра`;
-            if (this.currentModalStep === 3) return 'Подтвердите выбор снимка / снимков';
+            if (this.state.currentModalStep === 1) return 'Необходима настройка для скачки спутникового снимка?';
+            if (this.state.currentModalStep === 2) return `Найдено ${this.state.fakeFoundImages.length} снимков. Выберите даты для предпросмотра`;
+            if (this.state.currentModalStep === 3) return 'Подтвердите выбор снимка / снимков';
             return 'Снимки не найдены';
         },
 
         determineResultViewType() {
-            if (!this.selectedItem) return null;
-            if (this.selectedItem.type === 'satellite_from_area') {
+            if (!this.state.selectedItem) return null;
+            if (this.state.selectedItem.type === 'satellite_from_area') {
                 return 'satellite_with_polygon';
             }
-            if (this.selectedItem.type === 'satellite') {
+            if (this.state.selectedItem.type === 'satellite') {
                 return 'satellite_basic';
             }
-            if (this.selectedItem.type === 'aero') {
+            if (this.state.selectedItem.type === 'aero') {
                 return 'aero_full';
             }
             return 'satellite_basic';
         },
 
         get isSatelliteBasic() {
-            return this.resultViewType === 'satellite_basic';
+            return this.state.resultViewType === 'satellite_basic';
         },
 
         get isSatelliteWithPolygon() {
-            return this.resultViewType === 'satellite_with_polygon';
+            return this.state.resultViewType === 'satellite_with_polygon';
         },
 
         get isSatelliteWithAero() {
-            return this.resultViewType === 'satellite_with_aero';
+            return this.state.resultViewType === 'satellite_with_aero';
         },
 
         get isAeroFull() {
-            return this.resultViewType === 'aero_full';
+            return this.state.resultViewType === 'aero_full';
         },
 
     }));
