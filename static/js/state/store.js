@@ -79,4 +79,7 @@ export const state = {
     selectedAreaId: null,
     selectedSatelliteId: null,
     selectedAeroId: null,
+
+
+
 };
