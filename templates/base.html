@@ -6,11 +6,6 @@
     <title>{% block title %}BioGIS{% endblock %}</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
-    <style>
-        .main-content {
-            min-height: calc(100vh - 64px);
-        }
-    </style>
 </head>
 <body class="bg-slate-50">
     <!-- Хедер -->
@@ -58,5 +53,9 @@
     <footer class="bg-white border-t py-6 text-center text-slate-500 text-sm">
         © 2026 BioGIS Tool • Для научных и образовательных целей
     </footer>
+    <script type="module">
+      import GeoTIFF from 'https://cdn.jsdelivr.net/npm/geotiff@2.0.7/+esm';
+      window.GeoTIFF = GeoTIFF;
+    </script>
 </body>
 </html>

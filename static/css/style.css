@@ -1,0 +1,26 @@
+.main-content {
+    min-height: calc(100vh - 64px);
+}
+.leaflet-draw-toolbar .leaflet-draw-edit-finish,
+.leaflet-draw-toolbar .leaflet-draw-edit-cancel,
+.leaflet-draw-toolbar .leaflet-draw-edit-undo,
+.leaflet-draw-edit-edit,
+.leaflet-draw-edit-remove {
+    display: none !important;
+}
+
+/* Прокрутка длинного названия при наведении */
+.scroll-on-hover {
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    max-width: 180px; /* подбери под свою вёрстку */
+}
+.scroll-on-hover:hover {
+    animation: scrollX 3s linear infinite;
+}
+@keyframes scrollX {
+    0%   { transform: translateX(0); }
+    50%  { transform: translateX(calc(-100% + 180px)); }
+    100% { transform: translateX(0); }
+}

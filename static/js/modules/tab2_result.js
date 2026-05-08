@@ -70,3 +70,17 @@ export function activateDeepAnalysis(state) {
 
     console.log('🚀 Углубленный анализ активирован');
 }
+
+/**
+ * Определить режим отображения результата
+ * @param {Object} state
+ * @returns {'satellite'|'aero'|'multidate'|null}
+ */
+export function determineAlgorithmMode(state) {
+    if (!state.activeResult) return null;
+    // В activeResult.type хранится 'satellite' или 'aero'
+    if (state.activeResult.type === 'satellite') return 'satellite';
+    if (state.activeResult.type === 'aero') return 'aero';
+    // Для многодатного анализа позже
+    return null;
+}
