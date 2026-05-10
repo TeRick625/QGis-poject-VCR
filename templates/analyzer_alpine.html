@@ -19,25 +19,25 @@
                     @click="state.currentTab = 0; initCurrentTab()"
                     :class="{ 'border-b-4 border-blue-600 text-blue-600 font-medium': state.currentTab === 0 }"
                     class="px-10 py-4 text-lg hover:text-blue-600 transition-colors">
-                    1. Выбор области и снимков
+                    Выбор области и снимков
                 </button>
                 <button
                     @click="state.currentTab = 1; initCurrentTab()"
                     :class="{ 'border-b-4 border-blue-600 text-blue-600 font-medium': state.currentTab === 1 }"
                     class="px-10 py-4 text-lg hover:text-blue-600 transition-colors">
-                    2. Анализ и маски
+                    Анализ и маски
                 </button>
                 <button
                     @click="state.currentTab = 2; initCurrentTab()"
                     :class="{ 'border-b-4 border-blue-600 text-blue-600 font-medium': state.currentTab === 2 }"
                     class="px-10 py-4 text-lg hover:text-blue-600 transition-colors">
-                    3. Статистика
+                    Статистика
                 </button>
                 <button
                     @click="state.currentTab = 3; initCurrentTab()"
                     :class="{ 'border-b-4 border-blue-600 text-blue-600 font-medium': state.currentTab === 3 }"
                     class="px-10 py-4 text-lg hover:text-blue-600 transition-colors">
-                    4. Результаты и экспорт
+                    Результаты и экспорт
                 </button>
             </div>
         </div>
@@ -207,51 +207,6 @@
                             </div>
                         </div>
                     </div>
-                    <!-- Модальное окно загрузки файлов -->
-                    <div x-show="state.uploadModalOpen" class="fixed inset-0 bg-black/40 flex items-center justify-center z-[1000]" data-upload-modal="true">
-                        <div class="bg-white rounded-3xl shadow-xl max-w-2xl w-full mx-4 p-6 max-h-[90vh] overflow-y-auto">
-                            <div class="flex justify-between items-center mb-6">
-                                <h3 class="font-medium text-xl">Загрузка файлов</h3>
-                                <button @click="state.uploadModalOpen = false" class="text-2xl text-slate-400 hover:text-slate-600 leading-none">&times;</button>
-                            </div>
-                            <!-- Спутниковые снимки -->
-                            <div class="mb-6 p-4 bg-slate-50 rounded-2xl">
-                                <h4 class="font-medium mb-2">🛰️ Спутниковые снимки (GeoTIFF)</h4>
-                                <input type="file" accept=".tif,.tiff" multiple
-                                       @change="setUploadFiles('satellite', $event.target.files)"
-                                       class="text-sm">
-                                <p class="text-xs text-slate-500 mt-1" x-text="'Выбрано: ' + (state.uploadModal.satelliteFiles?.length || 0) + ' файлов'"></p>
-                            </div>
-                            <!-- Полигоны -->
-                            <div class="mb-6 p-4 bg-slate-50 rounded-2xl">
-                                <h4 class="font-medium mb-2">📐 Полигоны (KML)</h4>
-                                <input type="file" accept=".kml" multiple
-                                       @change="setUploadFiles('polygon', $event.target.files)"
-                                       class="text-sm">
-                                <p class="text-xs text-slate-500 mt-1" x-text="'Выбрано: ' + (state.uploadModal.polygonFiles?.length || 0) + ' файлов'"></p>
-                            </div>
-                            <!-- Аэрофотоснимки -->
-                            <div class="mb-6 p-4 bg-slate-50 rounded-2xl">
-                                <h4 class="font-medium mb-2">📷 Аэрофотоснимки</h4>
-                                <template x-for="(entry, idx) in state.uploadModal.aeroEntries" :key="idx">
-                                    <div class="flex items-center gap-3 mb-2">
-                                        <span class="text-sm flex-1" x-text="entry.image.name"></span>
-                                        <span x-show="entry.kml" class="text-xs text-green-600" x-text="'+ ' + entry.kml.name"></span>
-                                        <button @click="attachKmlToAeroEntry(idx)" class="text-xs bg-blue-100 hover:bg-blue-200 px-2 py-1 rounded-xl">+ KML</button>
-                                        <button @click="removeAeroEntry(idx)" class="text-red-500 hover:text-red-700">&times;</button>
-                                    </div>
-                                </template>
-                                <input type="file" accept=".jpg,.jpeg,.png" multiple
-                                       @change="addAeroEntries($event.target.files)"
-                                       class="text-sm mt-2">
-                            </div>
-                            <!-- Кнопки действий -->
-                            <div class="flex justify-end gap-3 mt-6">
-                                <button @click="state.uploadModalOpen = false" class="px-6 py-2.5 border border-slate-300 rounded-2xl text-sm hover:bg-slate-50">Отмена</button>
-                                <button @click="processUploadModal()" class="px-6 py-2.5 bg-blue-600 text-white rounded-2xl text-sm hover:bg-blue-700">Загрузить всё</button>
-                            </div>
-                        </div>
-                    </div>
                 </div>
             </div>
         </div>
@@ -409,6 +364,131 @@
         <div x-show="state.currentTab === 3" class="space-y-8 py-5">
             <h2 class="text-2xl font-semibold mb-4">4. Результаты и экспорт</h2>
             <p class="text-slate-600">Здесь будет экспорт результатов</p>
+        </div>
+    </div>
+    <!-- Модальное окно загрузки файлов -->
+    <div x-show="state.uploadModalOpen" class="fixed inset-0 bg-black/40 flex items-center justify-center z-[1000]" data-upload-modal="true">
+        <div class="bg-white rounded-3xl shadow-xl max-w-2xl w-full mx-4 p-6 max-h-[90vh] overflow-y-auto">
+            <div class="flex justify-between items-center mb-6">
+                <h3 class="font-medium text-xl">Загрузка файлов</h3>
+                <button @click="state.uploadModalOpen = false" class="text-2xl text-slate-400 hover:text-slate-600 leading-none">&times;</button>
+            </div>
+            <!-- Спутниковые снимки -->
+            <div id="upload-satellite" class="mb-6 p-4 bg-slate-50 rounded-2xl"
+            x-show="!state.uploadModal.activeSection || state.uploadModal.activeSection === 'satellite'">
+                <h4 class="font-medium mb-2">🛰️ Спутниковые снимки (GeoTIFF)</h4>
+                <input type="file" accept=".tif,.tiff" multiple
+                       @change="setUploadFiles('satellite', $event.target.files)"
+                       class="text-sm">
+                <p class="text-xs text-slate-500 mt-1" x-text="'Выбрано: ' + (state.uploadModal.satelliteFiles?.length || 0) + ' файлов'"></p>
+            </div>
+            <!-- Полигоны -->
+            <div id="upload-polygon" class="mb-6 p-4 bg-slate-50 rounded-2xl"
+            x-show="!state.uploadModal.activeSection || state.uploadModal.activeSection === 'polygon'">
+                <h4 class="font-medium mb-2">📐 Полигоны (KML)</h4>
+                <input type="file" accept=".kml" multiple
+                       @change="setUploadFiles('polygon', $event.target.files)"
+                       class="text-sm">
+                <p class="text-xs text-slate-500 mt-1" x-text="'Выбрано: ' + (state.uploadModal.polygonFiles?.length || 0) + ' файлов'"></p>
+            </div>
+            <!-- Аэрофотоснимки -->
+            <div id="upload-aero" class="mb-6 p-4 bg-slate-50 rounded-2xl"
+            x-show="!state.uploadModal.activeSection || state.uploadModal.activeSection === 'aero'">
+                <h4 class="font-medium mb-2">📷 Аэрофотоснимки</h4>
+                <template x-for="(entry, idx) in state.uploadModal.aeroEntries" :key="idx">
+                    <div class="flex items-center gap-3 mb-2">
+                        <span class="text-sm flex-1" x-text="entry.image.name"></span>
+                        <span x-show="entry.kml" class="text-xs text-green-600" x-text="'+ ' + entry.kml.name"></span>
+                        <button @click="attachKmlToAeroEntry(idx)" class="text-xs bg-blue-100 hover:bg-blue-200 px-2 py-1 rounded-xl">+ KML</button>
+                        <button @click="removeAeroEntry(idx)" class="text-red-500 hover:text-red-700">&times;</button>
+                    </div>
+                </template>
+                <input type="file" accept=".jpg,.jpeg,.png" multiple
+                       @change="addAeroEntries($event.target.files)"
+                       class="text-sm mt-2">
+            </div>
+            <!-- Кнопки действий -->
+            <div class="flex justify-end gap-3 mt-6">
+                <button @click="state.uploadModalOpen = false" class="px-6 py-2.5 border border-slate-300 rounded-2xl text-sm hover:bg-slate-50">Отмена</button>
+                <button @click="processUploadModal()" class="px-6 py-2.5 bg-blue-600 text-white rounded-2xl text-sm hover:bg-blue-700">Загрузить всё</button>
+            </div>
+        </div>
+    </div>
+    <!-- Модальное окно активации многодатного анализа -->
+    <div x-show="state.activationModalOpen" class="fixed inset-0 bg-black/40 flex items-center justify-center z-[1000]">
+        <div class="bg-white rounded-3xl shadow-xl max-w-md w-full mx-4 p-6">
+            <div class="flex justify-between items-center mb-4">
+                <h4 class="font-medium text-lg">Запуск многодатного анализа</h4>
+                <button @click="state.activationModalOpen = false" class="text-2xl leading-none text-slate-400 hover:text-slate-600">&times;</button>
+            </div>
+            <!-- Основное содержимое окна -->
+            <div x-show="!state.activationShowParams">
+                <p class="text-sm text-slate-500 mb-6">Выберите способ подготовки снимков для анализа изменений во времени:</p>
+
+                <!-- Способ 1: уже найденные снимки -->
+                <div class="mb-4 p-4 bg-blue-50 rounded-2xl cursor-pointer hover:bg-blue-100"
+                     @click="startMultidateWithFound()">
+                    <p class="font-medium">📂 Использовать найденные снимки</p>
+                    <p class="text-xs text-slate-500 mt-1">
+                        <span x-show="!!state.workspaceItems.find(i=>i.id===state.selectedAreaId)?.subItems?.length">
+                            Снимки из подсписка полигона
+                        </span>
+                        <span x-show="!state.workspaceItems.find(i=>i.id===state.selectedAreaId)?.subItems?.length">
+                            Снимки, отобранные через «Найти снимки» для этого полигона
+                        </span>
+                    </p>
+                </div>
+
+                <!-- Способ 2: задать параметры -->
+                <div class="mb-4 p-4 bg-blue-50 rounded-2xl cursor-pointer hover:bg-blue-100"
+                     @click="startMultidateWithParams()">
+                    <p class="font-medium">🔍 Задать параметры поиска</p>
+                    <p class="text-xs text-slate-500 mt-1">Указать облачность, период и другие фильтры</p>
+                </div>
+
+                <!-- Способ 3: загрузить файлы -->
+                <div class="mb-4 p-4 bg-blue-50 rounded-2xl">
+                    <p class="font-medium mb-2">📤 Загрузить свои снимки</p>
+                    <input type="file" accept=".tif,.tiff" multiple
+                           @change="handleMultidateUpload($event)"
+                           class="text-sm">
+                    <p class="text-xs text-slate-500 mt-1" x-text="'Выбрано: ' + (state.uploadedSnapshots?.length || 0) + ' файлов'"></p>
+                    <button @click="startMultidateWithUpload()"
+                            :disabled="!state.uploadedSnapshots?.length"
+                            class="mt-2 px-4 py-2 bg-blue-600 text-white rounded-2xl text-xs hover:bg-blue-700 disabled:bg-gray-400">
+                        Запустить с этими файлами
+                    </button>
+                </div>
+            </div>
+
+            <!-- Форма параметров (появляется после выбора способа 2) -->
+            <div x-show="state.activationShowParams">
+                <h5 class="font-medium text-sm mb-4">Параметры поиска снимков</h5>
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-xs font-medium mb-1">Макс. облачность (%)</label>
+                        <input type="number" x-model="state.activationParams.cloudMax" class="w-full p-2 border rounded-xl text-sm">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium mb-1">Год начала</label>
+                        <input type="number" x-model="state.activationParams.yearFrom" class="w-full p-2 border rounded-xl text-sm">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium mb-1">Год окончания</label>
+                        <input type="number" x-model="state.activationParams.yearTo" class="w-full p-2 border rounded-xl text-sm">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium mb-1">Сезон</label>
+                        <select x-model="state.activationParams.season" class="w-full p-2 border rounded-xl text-sm">
+                            <option>Любой</option><option>Весна</option><option>Лето</option><option>Осень</option><option>Зима</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="flex justify-end gap-3 mt-6">
+                    <button @click="cancelParamsForm()" class="px-4 py-2 border border-slate-300 rounded-2xl text-sm">Назад</button>
+                    <button @click="submitParamsAndRun()" class="px-4 py-2 bg-blue-600 text-white rounded-2xl text-sm">Найти и запустить</button>
+                </div>
+            </div>
         </div>
     </div>
 </div>

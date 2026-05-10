@@ -15,7 +15,7 @@ import {
 
 import {
     applyResultState, renderResultMode, selectHistoryItem,
-    handleAeroUpload, activateDeepAnalysis, determineAlgorithmMode
+    determineAlgorithmMode
 } from '/static/js/modules/tab2_result.js';
 
 import {
@@ -205,6 +205,18 @@ document.addEventListener('alpine:init', () => {
             openUploadModal(this.state);
         },
 
+        openUploadModalFor(type) {
+            this.openUploadModal();                  // сначала сбрасываем всё
+            this.state.uploadModal.activeSection = type;   // затем устанавливаем нужную секцию
+            this.$nextTick(() => {
+                const section = document.getElementById('upload-' + type);
+                if (section) {
+                    section.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }
+            });
+        },
+
+
         setUploadFiles(type, files) {
             setUploadFiles(type, files, this.state);
         },
@@ -250,25 +262,102 @@ document.addEventListener('alpine:init', () => {
         addSelectedImagesToPolygon() { addSelectedImagesToPolygon(this.state); },
         get modalTitleText() { return getModalTitleText(this.state); },
 
+        // ==================== АКТИВАЦИЯ МНОГОДАТНОГО АНАЛИЗА ====================
+
+        openActivationModal() {
+            this.state.activationModalOpen = true;
+            this.state.activationMethod = null;
+            this.state.activationShowParams = false;   // сброс формы
+            this.state.uploadedSnapshots = [];
+        },
+
+        startMultidateWithFound() {
+            // 1) Проверяем подсписок полигона (subItems)
+            const polygon = this.state.workspaceItems.find(i => i.id === this.state.selectedAreaId);
+            if (polygon && polygon.subItems && polygon.subItems.length > 0) {
+                this.state.activationMethod = 'found';
+                this.state.activationModalOpen = false;
+                this.runAnalysis();
+                return;
+            }
+            // 2) Иначе – снимки из модального окна «Найти снимки»
+            if (this.state.selectedImageIds.length === 0) {
+                alert('Сначала найдите и выберите снимки через «Найти снимки».');
+                return;
+            }
+            this.state.activationMethod = 'found';
+            this.state.activationModalOpen = false;
+            this.runAnalysis();
+        },
+
+        startMultidateWithParams() {
+            // Показываем форму параметров внутри этого же окна
+            this.state.activationShowParams = true;
+        },
+
+        submitParamsAndRun() {
+            // Закрываем окно и запускаем анализ с имитацией по параметрам
+            this.state.activationMethod = 'params';
+            this.state.activationModalOpen = false;
+            this.state.activationShowParams = false;
+            this.runAnalysis();
+        },
+
+        cancelParamsForm() {
+            // Возврат к выбору способа
+            this.state.activationShowParams = false;
+        },
+
+        handleMultidateUpload(event) { /* без изменений */ },
+        async startMultidateWithUpload() { /* без изменений */ },
+
+
         // Результат
         applyResultState() { applyResultState(this.state); },
         renderResultMode() { renderResultMode(this.state); },
         selectHistoryItem(index) { selectHistoryItem(index, this.state); },
-        handleAeroUpload(event) { handleAeroUpload(event, this.state); },
-        activateDeepAnalysis() { activateDeepAnalysis(this.state); },
 
         // ==================== ГЕТТЕРЫ ====================
-//        get isSatelliteBasic() { return this.state.resultViewType === 'satellite_basic'; },
-//        get isSatelliteWithPolygon() { return this.state.resultViewType === 'satellite_with_polygon'; },
-//        get isSatelliteWithAero() { return this.state.resultViewType === 'satellite_with_aero'; },
-//        get isAeroFull() { return this.state.resultViewType === 'aero_full'; },
-//        determineResultViewType() {
-//            if (!this.state.selectedItem) return null;
-//            if (this.state.selectedItem.type === 'satellite_from_area') return 'satellite_with_polygon';
-//            if (this.state.selectedItem.type === 'satellite') return 'satellite_basic';
-//            if (this.state.selectedItem.type === 'aero') return 'aero_full';
-//            return 'satellite_basic';
-//        },
+
+        // Индекс текущего просматриваемого снимка (левый ползунок)
+        get multidateSnapshotIndex() {
+            return this.state.activeResult?.snapshotIndex ?? 0;
+        },
+        set multidateSnapshotIndex(val) {
+            const v = Number(val);
+            if (this.state.activeResult) {
+                this.state.activeResult.snapshotIndex = v;
+            }
+        },
+
+        // Начало диапазона (левый маркер двойного ползунка)
+        get multidateRangeStart() {
+            return this.state.activeResult?.rangeStart ?? 0;
+        },
+        set multidateRangeStart(val) {
+            const v = Number(val);
+            if (this.state.activeResult) {
+                this.state.activeResult.rangeStart = v;
+                // Гарантируем порядок
+                if (v > this.state.activeResult.rangeEnd) {
+                    this.state.activeResult.rangeEnd = v;
+                }
+            }
+        },
+
+        // Конец диапазона (правый маркер двойного ползунка)
+        get multidateRangeEnd() {
+            return this.state.activeResult?.rangeEnd ?? 0;
+        },
+        set multidateRangeEnd(val) {
+            const v = Number(val);
+            if (this.state.activeResult) {
+                this.state.activeResult.rangeEnd = v;
+                if (v < this.state.activeResult.rangeStart) {
+                    this.state.activeResult.rangeStart = v;
+                }
+            }
+        },
 
         get linkedKmlIds() {
             // Собираем id всех полигонов, на которые ссылаются associatedKml у аэро

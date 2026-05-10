@@ -3,8 +3,56 @@
 {% block title %}BioGIS — Профиль{% endblock %}
 
 {% block content %}
-<div class="max-w-4xl mx-auto px-6 py-12">
-    <h1 class="text-3xl font-bold mb-8">Профиль пользователя</h1>
-    <p class="text-slate-600">Здесь будет история ваших анализов.</p>
+<div x-data="profile" x-init="initProfile()" class="min-h-screen bg-slate-50">
+    <!-- Заголовок -->
+    <div class="bg-white border-b shadow-sm py-4">
+        <div class="max-w-7xl mx-auto px-6">
+            <h1 class="text-3xl font-bold text-slate-800">Профиль</h1>
+        </div>
+    </div>
+
+    <!-- Вкладки -->
+    <div class="bg-white border-b sticky top-0 z-50">
+        <div class="max-w-7xl mx-auto px-6">
+            <div class="flex justify-center border-b">
+                <button @click="profileState.activeTab = 'profile'; profileState.mode = 'view'"
+                        :class="{ 'border-b-4 border-blue-600 text-blue-600 font-medium': profileState.activeTab === 'profile' }"
+                        class="px-10 py-4 text-lg hover:text-blue-600 transition-colors">
+                    Профиль
+                </button>
+                <button @click="profileState.activeTab = 'history'; profileState.mode = 'view'"
+                        :class="{ 'border-b-4 border-blue-600 text-blue-600 font-medium': profileState.activeTab === 'history' }"
+                        class="px-10 py-4 text-lg hover:text-blue-600 transition-colors">
+                    История анализов
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Контент -->
+    <div class="max-w-7xl mx-auto px-6 py-8">
+        <!-- Вкладка Профиль -->
+        <div x-show="profileState.activeTab === 'profile'">
+            <div x-show="profileState.mode === 'view'">
+                {% include 'partials/profile_tabProfile_view.html' %}
+            </div>
+            <div x-show="profileState.mode === 'edit'">
+                {% include 'partials/profile_tabProfile_edit.html' %}
+            </div>
+        </div>
+
+        <!-- Вкладка История -->
+        <div x-show="profileState.activeTab === 'history'">
+            <div x-show="profileState.mode === 'view'">
+                {% include 'partials/profile_tabHistory_view.html' %}
+            </div>
+            <div x-show="profileState.mode === 'edit'">
+                {% include 'partials/profile_tabHistory_edit.html' %}
+            </div>
+        </div>
+    </div>
 </div>
+
+<script type="module" src="{{ url_for('static', filename='js/modules/profile.js') }}"></script>
+<script defer src="{{ url_for('static', filename='js/alpine.js') }}"></script>
 {% endblock %}

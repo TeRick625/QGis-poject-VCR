@@ -4,7 +4,13 @@
 
         <!-- 1. Области интереса -->
         <div class="bg-white rounded-3xl shadow p-4 flex flex-col h-full min-h-0">
-            <h3 class="font-medium mb-3 text-sm">Области интереса</h3>
+            <!-- В блоке "Области интереса" -->
+            <div class="flex items-center justify-between mb-3">
+                <h3 class="font-medium text-sm">Области интереса</h3>
+                <button @click="openUploadModalFor('polygon')"
+                        class="text-blue-600 hover:text-blue-700 text-lg leading-none"
+                        title="Загрузить полигон (KML)">+</button>
+            </div>
             <div class="flex-1 min-h-0 overflow-y-auto space-y-1 pr-1">
                 <template x-for="area in areasFiltered" :key="area.id">
                     <div class="border border-slate-200 rounded-xl overflow-hidden">
@@ -48,7 +54,13 @@
 
         <!-- 2. Спутниковые снимки -->
         <div class="bg-white rounded-3xl shadow p-4 flex flex-col h-full min-h-0">
-            <h3 class="font-medium mb-3 text-sm">Спутниковые снимки</h3>
+            <!-- В блоке "Спутниковые снимки" -->
+            <div class="flex items-center justify-between mb-3">
+                <h3 class="font-medium text-sm">Спутниковые снимки</h3>
+                <button @click="openUploadModalFor('satellite')"
+                        class="text-blue-600 hover:text-blue-700 text-lg leading-none"
+                        title="Загрузить спутниковый снимок (GeoTIFF)">+</button>
+            </div>
             <div class="flex-1 min-h-0 overflow-y-auto space-y-1 pr-1">
                 <template x-for="item in satellitesFiltered" :key="item.id">
                     <div @click="selectItem('satellite', item)"
@@ -64,7 +76,13 @@
 
         <!-- 3. Аэрофотоснимки -->
         <div class="bg-white rounded-3xl shadow p-4 flex flex-col h-full min-h-0">
-            <h3 class="font-medium mb-3 text-sm">Аэрофотоснимки</h3>
+            <!-- В блоке "Аэрофотоснимки" -->
+            <div class="flex items-center justify-between mb-3">
+                <h3 class="font-medium text-sm">Аэрофотоснимки</h3>
+                <button @click="openUploadModalFor('aero')"
+                        class="text-blue-600 hover:text-blue-700 text-lg leading-none"
+                        title="Загрузить аэрофото (JPG/PNG)">+</button>
+            </div>
             <div class="flex-1 min-h-0 overflow-y-auto space-y-1 pr-1">
                 <template x-for="item in aeroImagesFiltered" :key="item.id">
                     <div class="border border-slate-200 rounded-xl overflow-hidden">

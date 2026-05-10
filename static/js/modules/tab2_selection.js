@@ -158,16 +158,36 @@ export function runAnalysis(state, callbacks) {
     let algorithmData = null;
     const nnType = state.selectedNN?.type; // нужно сохранить type нейросети при выборе
 
+     if (nnType === 'multidate' && !state.activationMethod) {
+        if (callbacks.openActivationModal) {
+            callbacks.openActivationModal();
+        }
+        return;
+    }
+
     // Найдём выбранную нейросеть, чтобы узнать её type
     const selectedNNObj = state.neuralNetworks.find(n => n.id === state.selectedNN?.id);
     if (selectedNNObj) {
         switch (selectedNNObj.type) {
             case 'multidate':
-                // Для алгоритма 1 нужен массив снимков
-                algorithmData = {
-                    polygonId: state.selectedAreaId,
-                    snapshotIds: [] // здесь будут id выбранных снимков (позже заполним)
-                };
+                let snapshotIds = [];
+                let snapshotDates = [];
+                const polygon = state.workspaceItems.find(i => i.id === state.selectedAreaId);
+                if (state.activationMethod === 'found') {
+                    const polygon = state.workspaceItems.find(i => i.id === state.selectedAreaId);
+                    if (polygon && polygon.subItems && polygon.subItems.length > 0) {
+                        // Берём из подсписка полигона
+                        snapshotIds = polygon.subItems.map(s => s.id);
+                        snapshotDates = polygon.subItems.map(s => s.date);
+                    } else {
+                        // Используем выбранные в модальном окне «Найти снимки»
+                        snapshotIds = state.selectedImageIds;
+                        snapshotDates = state.selectedImageIds.map(id => {
+                            const found = state.fakeFoundImages.find(img => img.id === id);
+                            return found ? found.date : '?';
+                        });
+                    }
+                }
                 break;
             case 'satellite':
                 // Для алгоритмов 2/3 нужен id спутникового снимка
@@ -181,14 +201,21 @@ export function runAnalysis(state, callbacks) {
                 };
                 break;
         }
+    state.activationMethod = null;
+    state.uploadedSnapshots = [];
     }
     state.selectedAlgorithmData = algorithmData;
 
 
+
+    const snapshotDates = algorithmData?.snapshotDates || [];
+    const lastIdx = snapshotDates.length - 1;
+
     const newResult = {
         id: Date.now(),
         timestamp: new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }),
-        type: state.selectedItem.type === 'aero' ? 'aero' : 'satellite',
+        type: state.selectedItem.type === 'aero' ? 'aero' :
+              (state.selectedNN?.type === 'multidate' ? 'multidate' : 'satellite'),
         itemName: state.selectedItem.name,
         nnName: state.selectedNN.name || `NN #${state.selectedNN.id}`,
         hasPolygon: state.selectedItem.isSubItem || state.selectedItem.type === 'area',
@@ -197,6 +224,10 @@ export function runAnalysis(state, callbacks) {
         aeroOverlayOpacity: 0.6,
         uploadedAeroFile: null,
         deepAnalysisEnabled: false,
+        snapshotDates: snapshotDates,
+        snapshotIndex: 0,
+        rangeStart: 0,
+        rangeEnd: lastIdx >= 0 ? lastIdx : 0,
     };
 
     state.analysisHistory.unshift(newResult);

@@ -1,0 +1,107 @@
+<div class="flex items-center justify-between mb-6">
+    <h2 class="text-xl font-semibold">История анализов</h2>
+    <button @click="enterHistoryEditMode()"
+            class="px-4 py-2 text-sm bg-amber-600 hover:bg-amber-700 text-white rounded-xl transition">
+        ✎ Управление
+    </button>
+</div>
+
+<!-- Фильтры и поиск -->
+<div class="bg-white rounded-2xl shadow-sm p-4 mb-6">
+    <div class="flex flex-wrap items-center gap-4">
+        <!-- Чипсы фильтрации по типу -->
+        <div class="flex gap-2">
+            <button @click="profileState.historyFilter = 'all'"
+                    :class="profileState.historyFilter === 'all' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'"
+                    class="px-3 py-1.5 text-xs font-medium rounded-full transition">
+                Все
+            </button>
+            <button @click="profileState.historyFilter = 'satellite'"
+                    :class="profileState.historyFilter === 'satellite' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'"
+                    class="px-3 py-1.5 text-xs font-medium rounded-full transition">
+                Спутник
+            </button>
+            <button @click="profileState.historyFilter = 'aero'"
+                    :class="profileState.historyFilter === 'aero' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'"
+                    class="px-3 py-1.5 text-xs font-medium rounded-full transition">
+                Аэро
+            </button>
+            <button @click="profileState.historyFilter = 'multidate'"
+                    :class="profileState.historyFilter === 'multidate' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'"
+                    class="px-3 py-1.5 text-xs font-medium rounded-full transition">
+                Многодатный
+            </button>
+        </div>
+
+        <!-- Поиск -->
+        <div class="flex-1 min-w-[200px]">
+            <input type="text" x-model="profileState.historySearch" placeholder="Поиск по названию объекта"
+                   class="w-full px-3 py-1.5 border border-slate-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+        </div>
+
+        <!-- Переключатель сортировки по дате -->
+        <button @click="profileState.historySortAsc = !profileState.historySortAsc"
+                class="flex items-center gap-1 text-sm text-slate-600 hover:text-blue-600 transition">
+            Дата
+            <span x-text="profileState.historySortAsc ? '↑' : '↓'"></span>
+        </button>
+    </div>
+</div>
+
+<!-- Список анализов (таймлайн) -->
+<div class="space-y-4">
+    <template x-for="item in filteredHistory" :key="item.id">
+        <div class="bg-white rounded-2xl shadow-sm border border-slate-200 hover:shadow-md transition-shadow">
+            <div class="flex items-center p-4 gap-4 cursor-pointer" @click="toggleHistoryExpand(item)">
+                <!-- Цветовая полоса типа -->
+                <div class="w-1.5 h-12 rounded-full"
+                     :class="{
+                         'bg-blue-500': item.type === 'satellite',
+                         'bg-yellow-500': item.type === 'aero',
+                         'bg-purple-500': item.type === 'multidate'
+                     }"></div>
+                <div class="flex-1 min-w-0">
+                    <p class="text-sm font-medium truncate" x-text="item.algorithmName"></p>
+                    <p class="text-xs text-slate-500 truncate" x-text="item.objectName"></p>
+                    <p class="text-xs text-slate-400 mt-1" x-text="item.timestamp"></p>
+                </div>
+                <div class="flex gap-2">
+                    <button @click.stop="repeatAnalysis(item)"
+                            class="px-3 py-1 text-xs bg-blue-50 text-blue-600 rounded-full hover:bg-blue-100 transition">
+                        Повторить
+                    </button>
+                    <button @click.stop="exportResults(item)"
+                            class="px-3 py-1 text-xs bg-slate-50 text-slate-600 rounded-full hover:bg-slate-100 transition">
+                        Выгрузить
+                    </button>
+                </div>
+                <!-- Иконка раскрытия -->
+                <span class="text-slate-400 text-lg" :class="{ 'rotate-180': item.expanded }">▼</span>
+            </div>
+            <!-- Раскрывающаяся детализация -->
+            <div x-show="item.expanded" class="px-4 pb-4 border-t border-slate-100 pt-3">
+                <dl class="text-sm space-y-1">
+                    <div class="flex justify-between">
+                        <dt class="text-slate-500">ID анализа:</dt>
+                        <dd class="font-medium" x-text="item.id"></dd>
+                    </div>
+                    <div class="flex justify-between">
+                        <dt class="text-slate-500">Тип:</dt>
+                        <dd class="font-medium" x-text="item.type"></dd>
+                    </div>
+                    <div class="flex justify-between">
+                        <dt class="text-slate-500">Объект:</dt>
+                        <dd class="font-medium" x-text="item.objectName"></dd>
+                    </div>
+                    <!-- Дополнительные поля можно добавить по мере необходимости -->
+                </dl>
+            </div>
+        </div>
+    </template>
+
+    <!-- Пустое состояние -->
+    <div x-show="profileState.history.length === 0" class="text-center py-12 bg-white rounded-2xl border">
+        <div class="text-5xl mb-4">🎞️</div>
+        <p class="text-slate-500">Вы ещё не выполняли анализы</p>
+    </div>
+</div>

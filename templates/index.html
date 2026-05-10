@@ -3,15 +3,113 @@
 {% block title %}BioGIS — Главная{% endblock %}
 
 {% block content %}
-<div class="max-w-7xl mx-auto px-6 py-12">
-    <h1 class="text-4xl font-bold text-center mb-4">Добро пожаловать в BioGIS</h1>
-    <p class="text-xl text-center text-slate-600 mb-12">Анализатор спутниковых снимков с использованием нейросетей</p>
-    
-    <div class="text-center">
-        <a href="{{ url_for('analyzer') }}" 
-           class="inline-block bg-blue-600 hover:bg-blue-700 text-white text-xl font-medium px-10 py-5 rounded-3xl transition-all">
-            🚀 Перейти к анализатору
-        </a>
-    </div>
+<div class="min-h-screen bg-gradient-to-br from-slate-50 via-white to-blue-50">
+    <!-- Hero-секция -->
+    <section class="relative overflow-hidden">
+        <div class="max-w-7xl mx-auto px-6 py-16 sm:py-24">
+            <div class="grid lg:grid-cols-2 gap-12 items-center">
+                <div>
+                    <h1 class="text-4xl sm:text-5xl font-extrabold text-slate-800 leading-tight">
+                        <span class="text-blue-600">BioGIS</span> — интеллектуальный анализ спутниковых и аэрофотоснимков
+                    </h1>
+                    <p class="mt-6 text-lg text-slate-600 max-w-xl">
+                        Веб-сервис для автоматизированного детектирования зон усыхания лесов с помощью нейросетей.
+                        Создан в рамках дипломной работы на стыке геоинформатики, компьютерного дизайна и машинного обучения.
+                    </p>
+                    <div class="mt-8 flex flex-wrap gap-4">
+                        <a href="{{ url_for('analyzer') }}"
+                           class="px-8 py-3.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-2xl shadow-lg hover:shadow-xl transition-all text-lg">
+                            🚀 Перейти к анализатору
+                        </a>
+                        <a href="#about"
+                           class="px-8 py-3.5 border-2 border-slate-300 text-slate-700 font-semibold rounded-2xl hover:bg-slate-100 transition-all text-lg">
+                            ℹ️ Подробнее
+                        </a>
+                    </div>
+                </div>
+                <div class="flex justify-center">
+                    <!-- Декоративная иллюстрация (спутник + лес) -->
+                    <div class="relative w-80 h-80 bg-gradient-to-br from-blue-100 to-blue-200 rounded-full flex items-center justify-center shadow-xl">
+                        <span class="text-9xl">🛰️🌲</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Основные возможности -->
+    <section id="features" class="py-16 bg-white/60 backdrop-blur-sm">
+        <div class="max-w-7xl mx-auto px-6">
+            <h2 class="text-3xl font-bold text-center text-slate-800 mb-12">Возможности сервиса</h2>
+            <div class="grid md:grid-cols-3 gap-8">
+                <div class="bg-white rounded-3xl shadow-md p-6 hover:shadow-lg transition">
+                    <div class="text-4xl mb-4">🗺️</div>
+                    <h3 class="font-bold text-lg mb-2">Работа с геоданными</h3>
+                    <p class="text-slate-600 text-sm">Загрузка и отображение полигонов KML, спутниковых снимков GeoTIFF и аэрофото с геопривязкой на интерактивной карте.</p>
+                </div>
+                <div class="bg-white rounded-3xl shadow-md p-6 hover:shadow-lg transition">
+                    <div class="text-4xl mb-4">🧠</div>
+                    <h3 class="font-bold text-lg mb-2">Нейросетевой анализ</h3>
+                    <p class="text-slate-600 text-sm">Многодатный, спутниковый и аэрофото анализ на основе обученных нейронных сетей с визуализацией результатов.</p>
+                </div>
+                <div class="bg-white rounded-3xl shadow-md p-6 hover:shadow-lg transition">
+                    <div class="text-4xl mb-4">📊</div>
+                    <h3 class="font-bold text-lg mb-2">История и экспорт</h3>
+                    <p class="text-slate-600 text-sm">Сохранение выполненных анализов в профиле, повторный запуск, выгрузка результатов и управление историей.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- О проекте и команда -->
+    <section id="about" class="py-16">
+        <div class="max-w-7xl mx-auto px-6">
+            <div class="grid lg:grid-cols-2 gap-12">
+                <div>
+                    <h2 class="text-3xl font-bold text-slate-800 mb-6">О проекте</h2>
+                    <p class="text-slate-600 mb-4">
+                        BioGIS разработан в качестве дипломной работы студентами 4-го курса направления «Прикладная информатика в компьютерном дизайне».
+                        Цель проекта — предоставить научным сотрудникам Ботанического сада-института ДВО РАН удобный инструмент для мониторинга усыхания лесов по данным дистанционного зондирования Земли.
+                    </p>
+                    <p class="text-slate-600">
+                        Сервис объединяет современные веб-технологии, географические информационные системы и методы глубокого обучения, делая сложный анализ доступным в несколько кликов.
+                    </p>
+                </div>
+                <div>
+                    <h2 class="text-3xl font-bold text-slate-800 mb-6">Команда</h2>
+                    <div class="space-y-4">
+                        <div class="bg-white rounded-2xl p-4 shadow-sm">
+                            <p class="font-semibold text-slate-800">Паталаха Арсений Сергеевич</p>
+                            <p class="text-sm text-slate-500">Студент 4 курса, разработчик</p>
+                        </div>
+                        <div class="bg-white rounded-2xl p-4 shadow-sm">
+                            <p class="font-semibold text-slate-800">Чепенко Маргарита Павловна</p>
+                            <p class="text-sm text-slate-500">Студентка 4 курса, разработчик</p>
+                        </div>
+                        <div class="bg-white rounded-2xl p-4 shadow-sm">
+                            <p class="font-semibold text-slate-800">Амосова Елена Владимировна</p>
+                            <p class="text-sm text-slate-500">к.ф.-м.н., доцент ДМКМ ДВФУ — научный руководитель</p>
+                        </div>
+                        <div class="bg-white rounded-2xl p-4 shadow-sm">
+                            <p class="font-semibold text-slate-800">Петренко Татьяна Яковлевна</p>
+                            <p class="text-sm text-slate-500">к.б.н., ст. науч. сотр. БСИ ДВО РАН — консультант</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Призыв к действию -->
+    <section class="py-16">
+        <div class="max-w-4xl mx-auto px-6 text-center">
+            <h2 class="text-3xl font-bold text-slate-800 mb-4">Готовы начать анализ?</h2>
+            <p class="text-slate-600 mb-8">Присоединяйтесь к научному сообществу и используйте передовые технологии для изучения лесных массивов.</p>
+            <a href="{{ url_for('analyzer') }}"
+               class="inline-block px-10 py-4 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-2xl shadow-lg hover:shadow-xl transition-all text-xl">
+                🌲 Запустить BioGIS
+            </a>
+        </div>
+    </section>
 </div>
 {% endblock %}

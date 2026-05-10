@@ -10,11 +10,11 @@ export function openUploadModal(state) {
     state.uploadModal = {
         satelliteFiles: [],
         polygonFiles: [],
-        aeroEntries: []
+        aeroEntries: [],
+        activeSection: null
     };
     state.uploadModalOpen = true;
 
-    // Очищаем визуальное отображение выбранных файлов в input'ах
     setTimeout(() => {
         const modal = document.querySelector('[data-upload-modal]');
         if (modal) {

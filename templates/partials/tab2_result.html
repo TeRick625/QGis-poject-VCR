@@ -1,47 +1,94 @@
 <!-- РЕЖИМ РЕЗУЛЬТАТА -->
-<div x-show="state.mode === 'result'" class="grid grid-cols-12 gap-6 h-[680px]">
+<div x-show="state.mode === 'result'" class="grid grid-cols-12 gap-6 h-[680px] overflow-hidden">
     <!-- Две широкие панели: исходник и результат -->
     <div class="col-span-7 grid grid-cols-2 gap-5 h-full">
-        <!-- Панель исходного снимка (общая для спутника и аэро) -->
-        <div class="bg-white rounded-3xl shadow p-4 flex flex-col">
-            <h3 class="font-medium mb-3 text-sm">
-                <span x-show="algorithmMode === 'satellite'">Исходный спутниковый снимок</span>
-                <span x-show="algorithmMode === 'aero'">Исходный аэрофотоснимок</span>
-            </h3>
-            <div class="relative flex-1 bg-slate-100 rounded-2xl overflow-hidden">
-                <div class="w-full h-full flex items-center justify-center text-slate-400 text-sm">
-                    [Изображение]
+
+        <!-- === АЛГОРИТМЫ 2/3 (спутник) === -->
+        <template x-if="algorithmMode === 'satellite'">
+            <div class="bg-white rounded-3xl shadow p-4 flex flex-col">
+                <h3 class="font-medium mb-3 text-sm">Исходный спутниковый снимок</h3>
+                <div class="relative flex-1 bg-slate-100 rounded-2xl overflow-hidden">
+                    <div class="w-full h-full flex items-center justify-center text-slate-400 text-sm">[Изображение]</div>
+                    <div class="absolute inset-0 pointer-events-none" :style="'opacity:' + dryingLayerOpacity">
+                        <div class="w-full h-full flex items-center justify-center text-red-500 text-sm bg-red-200/30">Точки зон усыхания</div>
+                    </div>
                 </div>
-                <!-- Слой точек усыхания (только для спутника) -->
-                <div x-show="algorithmMode === 'satellite'"
-                     class="absolute inset-0 pointer-events-none"
-                     :style="'opacity:' + dryingLayerOpacity">
-                    <div class="w-full h-full flex items-center justify-center text-red-500 text-sm bg-red-200/30">
-                        Точки зон усыхания
+                <div class="mt-3">
+                    <label class="text-xs text-slate-500">Прозрачность слоя зон усыхания</label>
+                    <input type="range" min="0" max="1" step="0.1" x-model="dryingLayerOpacity" class="w-full">
+                </div>
+            </div>
+        </template>
+
+        <!-- === АЛГОРИТМЫ 4/5 (аэро) === -->
+        <template x-if="algorithmMode === 'aero'">
+            <div class="bg-white rounded-3xl shadow p-4 flex flex-col">
+                <h3 class="font-medium mb-3 text-sm">Исходный аэрофотоснимок</h3>
+                <div class="relative flex-1 bg-slate-100 rounded-2xl overflow-hidden">
+                    <div class="w-full h-full flex items-center justify-center text-slate-400 text-sm">[Изображение]</div>
+                </div>
+            </div>
+        </template>
+
+        <!-- === АЛГОРИТМ 1 (мультидата) === -->
+        <template x-if="algorithmMode === 'multidate'">
+            <div class="bg-white rounded-3xl shadow p-4 flex flex-col">
+                <h3 class="font-medium mb-3 text-sm">Спутниковые снимки (временной ряд)</h3>
+                <div class="flex-1 bg-slate-100 rounded-2xl overflow-hidden flex items-center justify-center text-slate-400 text-sm">
+                    Наложение снимков / ползунок дат
+                </div>
+                <div class="mt-3">
+                    <label class="text-xs text-slate-500">Дата снимка</label>
+                    <input type="range" min="0"
+                           :max="(state.activeResult?.snapshotDates?.length || 1) - 1"
+                           step="1" x-model="multidateSnapshotIndex" class="w-full">
+                    <div class="flex justify-between text-xs text-slate-400 mt-1">
+                        <template x-for="(date, idx) in state.activeResult?.snapshotDates" :key="idx">
+                            <span :class="idx == multidateSnapshotIndex ? 'font-bold text-blue-600' : ''" x-text="date"></span>
+                        </template>
                     </div>
                 </div>
             </div>
-            <!-- Ползунок прозрачности слоя (только для спутника) -->
-            <div x-show="algorithmMode === 'satellite'" class="mt-3">
-                <label class="text-xs text-slate-500">Прозрачность слоя зон усыхания</label>
-                <input type="range" min="0" max="1" step="0.1"
-                       x-model="dryingLayerOpacity" class="w-full">
-            </div>
-        </div>
+        </template>
 
-        <!-- Панель результата анализа (хитмап) -->
+        <!-- === Вторая панель: результат (хитмап) === -->
         <div class="bg-white rounded-3xl shadow p-4 flex flex-col">
             <h3 class="font-medium mb-3 text-sm">Результат анализа</h3>
             <div class="relative flex-1 bg-slate-100 rounded-2xl overflow-hidden">
-                <div class="w-full h-full flex items-center justify-center text-slate-400 text-sm">
-                    Хитмап
+                <div class="w-full h-full flex items-center justify-center text-slate-400 text-sm">Хитмап</div>
+            </div>
+            <!-- Для multidate добавляем ползунок диапазона дат -->
+            <div x-show="algorithmMode === 'multidate'" class="mt-3">
+                <label class="text-xs text-slate-500">Диапазон дат для усыхания</label>
+                <div class="relative mt-2" style="height: 40px;">
+                    <!-- Верхний ползунок (rangeStart) -->
+                    <input type="range" min="0"
+                           :max="(state.activeResult?.snapshotDates?.length || 1) - 1"
+                           step="1" x-model="multidateRangeStart"
+                           class="absolute w-full top-0 range-double range-start"
+                           style="z-index:3;">
+                    <!-- Нижний ползунок (rangeEnd) -->
+                    <input type="range" min="0"
+                           :max="(state.activeResult?.snapshotDates?.length || 1) - 1"
+                           step="1" x-model="multidateRangeEnd"
+                           class="absolute w-full top-5 range-double range-end"
+                           style="z-index:3;">
+                    <!-- Трек между бегунками -->
+                    <div class="absolute h-2 bg-blue-500 rounded-full top-[18px]"
+                         :style="'left:' + (multidateRangeStart / ((state.activeResult?.snapshotDates?.length||1)-1) * 100) + '%; width:' + ((multidateRangeEnd - multidateRangeStart) / ((state.activeResult?.snapshotDates?.length||1)-1) * 100) + '%'"
+                         style="z-index:1;"></div>
+                </div>
+                <div class="flex justify-between text-xs text-slate-400 mt-3">
+                    <template x-for="(date, idx) in state.activeResult?.snapshotDates" :key="idx">
+                        <span :class="(idx >= multidateRangeStart && idx <= multidateRangeEnd) ? 'font-bold text-blue-600' : ''" x-text="date"></span>
+                    </template>
                 </div>
             </div>
         </div>
     </div>
 
     <!-- Правая панель: история и статистика -->
-    <div class="col-span-5 bg-white rounded-3xl shadow p-6 flex flex-col h-full">
+    <div class="col-span-5 bg-white rounded-3xl shadow p-6 flex flex-col h-full min-h-0">
         <h3 class="font-medium mb-4">История анализов</h3>
         <div class="flex-1 overflow-y-auto space-y-3 pr-2">
             <template x-for="(item, i) in state.analysisHistory" :key="item.id">
@@ -59,14 +106,12 @@
         <div class="mt-6 pt-6 border-t">
             <h4 class="text-sm font-medium mb-3">Статистика и описание</h4>
             <div id="resultStats" class="bg-slate-50 rounded-2xl p-5 text-sm overflow-y-auto max-h-52">
-                <span x-show="algorithmMode === 'satellite'">
-                    Спутниковый анализ. Площадь зон усыхания: ...
-                </span>
-                <span x-show="algorithmMode === 'aero'">
-                    Аэрофото анализ. Детализация: ...
-                </span>
+                <span x-show="algorithmMode === 'satellite'">Спутниковый анализ. Площадь зон усыхания: ...</span>
+                <span x-show="algorithmMode === 'aero'">Аэрофото анализ. Детализация: ...</span>
                 <span x-show="algorithmMode === 'multidate'">
-                    Многодатный анализ. В разработке.
+                    Многодатный анализ.<br>
+                    Снимков: 2 (2025-03-28, 2025-04-12)<br>
+                    Изменения: +12% зон усыхания
                 </span>
             </div>
         </div>

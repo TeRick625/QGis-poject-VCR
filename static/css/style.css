@@ -24,3 +24,47 @@
     50%  { transform: translateX(calc(-100% + 180px)); }
     100% { transform: translateX(0); }
 }
+
+/* Скрываем встроенный трек у ползунков, делаем бегунки круглыми */
+.range-double::-webkit-slider-runnable-track {
+    background: transparent !important;
+    height: 4px;
+}
+.range-double::-moz-range-track {
+    background: transparent !important;
+    height: 4px;
+}
+.range-double::-ms-track {
+    background: transparent;
+    border-color: transparent;
+    color: transparent;
+}
+.range-double::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: #3b82f6;
+    border: 2px solid white;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.3);
+    cursor: pointer;
+    margin-top: -6px;
+}
+.range-double::-moz-range-thumb {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: #3b82f6;
+    border: 2px solid white;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.3);
+    cursor: pointer;
+}
+.range-double::-ms-thumb {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: #3b82f6;
+    border: 2px solid white;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.3);
+    cursor: pointer;
+}

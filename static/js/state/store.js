@@ -38,6 +38,9 @@ export const state = {
 //        //     imageThumbnail: null // base64 миниатюра (опционально)
 //        // }
 //    ],
+
+
+
     workspaceItems: [
         // Чистый полигон с подсписком спутниковых снимков
         {
@@ -266,10 +269,23 @@ export const state = {
     uploadModal: {
         satelliteFiles: [],
         polygonFiles: [],
-        aeroEntries: []       // [{ image: File, kml: File|null }]
+        aeroEntries: [],       // [{ image: File, kml: File|null }]
+        activeSection: null    // 'satellite' | 'polygon' | 'aero' | null
     },
 
-//    uploadedFiles: [],
+    // Модальное окно активации многодатного анализа
+    activationModalOpen: false,
+    activationShowParams: false,
+    activationMethod: null,           // 'found' | 'params' | 'upload'
+    activationParams: {
+        cloudMax: 30,
+        yearFrom: 2023,
+        yearTo: 2025,
+        season: 'Любой'
+    },
+    uploadedSnapshots: [],            // File[] для способа 3
+    uploadedSnapshotIds: [],
+
     uploadedAeroFile: null,
     deepAnalysisEnabled: false,
     resultViewType: null,

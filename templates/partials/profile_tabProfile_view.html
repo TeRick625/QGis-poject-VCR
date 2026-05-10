@@ -1,0 +1,74 @@
+<!-- Hero-секция -->
+<div class="bg-white rounded-3xl shadow-lg p-6 mb-6 bg-gradient-to-br from-blue-50 to-white">
+    <div class="flex flex-col sm:flex-row items-center gap-5">
+        <!-- Аватар с инициалами (через Alpine) -->
+        <div class="w-20 h-20 sm:w-24 sm:h-24 rounded-full bg-gradient-to-br from-blue-400 to-blue-600 flex items-center justify-center text-white text-3xl sm:text-4xl font-bold shadow-md">
+            <span x-text="profileState.user.name.split(' ').map(n => n[0]).join('').slice(0, 2)"></span>
+        </div>
+        <div class="text-center sm:text-left flex-1">
+            <h2 class="text-2xl font-bold text-slate-800" x-text="profileState.user.name">Иван Петрович Соколов</h2>
+            <p class="text-slate-500 text-lg" x-text="profileState.user.role">Научный сотрудник</p>
+            <div class="flex flex-wrap gap-2 justify-center sm:justify-start mt-2">
+                <span class="inline-flex items-center bg-blue-100 text-blue-700 text-xs rounded-full px-3 py-1">
+                    📍 <span class="ml-1" x-text="profileState.user.department"></span>
+                </span>
+                <span class="inline-flex items-center bg-slate-100 text-slate-600 text-xs rounded-full px-3 py-1">
+                    📧 <span class="ml-1" x-text="profileState.user.email"></span>
+                </span>
+            </div>
+        </div>
+        <!-- Кнопка редактирования -->
+        <button @click="enterEditMode()" class="text-slate-400 hover:text-blue-600 transition-colors p-2 rounded-full hover:bg-blue-100" title="Редактировать профиль">
+            ✏️
+        </button>
+    </div>
+</div>
+
+<!-- Карточки статистики -->
+<div class="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
+    <div class="bg-white rounded-2xl shadow p-4 text-center hover:shadow-md transition-shadow">
+        <div class="text-3xl mb-1">📊</div>
+        <div class="text-2xl font-bold text-slate-800" x-text="profileState.history.length">3</div>
+        <div class="text-xs text-slate-500">Всего анализов</div>
+    </div>
+    <div class="bg-white rounded-2xl shadow p-4 text-center hover:shadow-md transition-shadow">
+        <div class="text-3xl mb-1">🛰️</div>
+        <div class="text-2xl font-bold text-slate-800" x-text="satelliteCount">-</div>
+        <div class="text-xs text-slate-500">Спутниковых</div>
+    </div>
+    <div class="bg-white rounded-2xl shadow p-4 text-center hover:shadow-md transition-shadow">
+        <div class="text-3xl mb-1">📷</div>
+        <div class="text-2xl font-bold text-slate-800" x-text="aeroCount">-</div>
+        <div class="text-xs text-slate-500">Аэро</div>
+    </div>
+    <div class="bg-white rounded-2xl shadow p-4 text-center hover:shadow-md transition-shadow">
+        <div class="text-3xl mb-1">📅</div>
+        <div class="text-2xl font-bold text-slate-800" x-text="multidateCount">-</div>
+        <div class="text-xs text-slate-500">Многодатных</div>
+    </div>
+</div>
+
+<!-- Последняя активность -->
+<div class="bg-white rounded-3xl shadow p-6">
+    <h3 class="font-semibold text-lg mb-4">Последняя активность</h3>
+    <div class="space-y-3">
+        <template x-for="item in profileState.history.slice(0, 3)" :key="item.id">
+            <div class="flex items-center gap-3 p-3 rounded-2xl bg-slate-50 hover:bg-blue-50 transition-colors">
+                <div class="w-3 h-3 rounded-full" :class="{
+                    'bg-blue-500': item.type === 'satellite',
+                    'bg-yellow-500': item.type === 'aero',
+                    'bg-purple-500': item.type === 'multidate'
+                }"></div>
+                <div class="flex-1 min-w-0">
+                    <p class="text-sm font-medium truncate" x-text="item.algorithmName"></p>
+                    <p class="text-xs text-slate-500 truncate" x-text="item.objectName"></p>
+                </div>
+                <span class="text-xs text-slate-400 whitespace-nowrap" x-text="item.timestamp"></span>
+            </div>
+        </template>
+        <div x-show="profileState.history.length === 0" class="text-center py-6 text-slate-400">
+            <p class="text-4xl mb-2">📭</p>
+            <p class="text-sm">Нет выполненных анализов</p>
+        </div>
+    </div>
+</div>

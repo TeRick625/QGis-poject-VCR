@@ -1,0 +1,60 @@
+<h2 class="text-xl font-semibold mb-6">Управление историей</h2>
+<div class="bg-white rounded-3xl shadow p-6">
+    <!-- Список карточек с чекбоксами -->
+    <div class="space-y-4">
+        <template x-for="item in profileState.history" :key="item.id">
+            <div class="flex items-center gap-4 p-4 rounded-2xl border border-slate-200 hover:bg-slate-50 transition">
+                <input type="checkbox" :value="item.id" x-model="profileState.selectedHistoryIds" class="accent-blue-600 w-4 h-4">
+                <div class="w-3 h-3 rounded-full"
+                     :class="{
+                         'bg-blue-500': item.type === 'satellite',
+                         'bg-yellow-500': item.type === 'aero',
+                         'bg-purple-500': item.type === 'multidate'
+                     }"></div>
+                <div class="flex-1 min-w-0">
+                    <p class="text-sm font-medium truncate" x-text="item.algorithmName"></p>
+                    <p class="text-xs text-slate-500 truncate" x-text="item.objectName"></p>
+                </div>
+                <span class="text-xs text-slate-400" x-text="item.timestamp"></span>
+            </div>
+        </template>
+        <div x-show="profileState.history.length === 0" class="text-center py-12 text-slate-400">
+            <p class="text-5xl mb-2">📭</p>
+            <p>Нет записей для управления</p>
+        </div>
+    </div>
+
+    <!-- Кнопки действий -->
+    <div class="flex justify-between mt-6 pt-6 border-t border-slate-200">
+        <button @click="confirmDeleteHistory()"
+                :disabled="profileState.selectedHistoryIds.length === 0"
+                class="px-4 py-2 bg-red-600 text-white rounded-xl text-sm hover:bg-red-700 disabled:bg-gray-400 transition">
+            🗑️ Удалить выбранные
+        </button>
+        <button @click="profileState.mode = 'view'; profileState.selectedHistoryIds = []"
+                class="px-4 py-2 border border-slate-300 rounded-xl text-sm hover:bg-slate-50 transition">
+            Готово
+        </button>
+    </div>
+</div>
+
+<!-- Модальное подтверждение удаления -->
+<div x-show="profileState.deleteConfirmModalOpen" class="fixed inset-0 bg-black/40 flex items-center justify-center z-[1000]">
+    <div class="bg-white rounded-3xl shadow-xl max-w-sm w-full mx-4 p-6">
+        <div class="text-center">
+            <p class="text-4xl mb-4">⚠️</p>
+            <h4 class="font-semibold text-lg mb-2">Удалить выбранные записи?</h4>
+            <p class="text-sm text-slate-500 mb-6">Это действие нельзя отменить. Вы уверены, что хотите удалить выбранные записи из истории?</p>
+        </div>
+        <div class="flex justify-center gap-3">
+            <button @click="profileState.deleteConfirmModalOpen = false"
+                    class="px-6 py-2.5 border border-slate-300 rounded-xl text-sm hover:bg-slate-50 transition">
+                Отмена
+            </button>
+            <button @click="deleteSelectedHistory()"
+                    class="px-6 py-2.5 bg-red-600 text-white rounded-xl text-sm hover:bg-red-700 transition">
+                Удалить
+            </button>
+        </div>
+    </div>
+</div>
