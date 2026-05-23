@@ -1,6 +1,15 @@
 // static/js/modules/tab1_modalupload.js
-import { addWorkspaceItem } from './tab1_table.js';
-import { addWorkspaceLayer } from '../map.js';
+import {
+    addWorkspaceItem
+} from './tab1_table.js';
+
+import {
+    addWorkspaceLayer
+} from '../map.js';
+
+import {
+    saveWorkspaceItem, updateWorkspaceItem
+} from './api_workspace.js';
 
 /**
  * Инициализация состояния модального окна загрузки и сброс input'ов
@@ -55,18 +64,14 @@ export function addAeroEntries(files, state) {
  * @param {number} index
  */
 export function attachKmlToAeroEntry(index) {
+    const state = window.__uploadModalState;
+    if (!state) return;
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = '.kml';
     input.onchange = (e) => {
-        if (e.target.files.length > 0) {
-            // Доступ к state через замыкание или глобально?
-            // Лучше пробросить через window или передать колбэк.
-            // Проще: использовать window.__uploadModalState (см. ниже)
-            const state = window.__uploadModalState;
-            if (state) {
-                state.uploadModal.aeroEntries[index].kml = e.target.files[0];
-            }
+        if (e.target.files.length > 0 && state.uploadModal.aeroEntries[index]) {
+            state.uploadModal.aeroEntries[index].kml = e.target.files[0];
         }
     };
     input.click();
@@ -104,6 +109,7 @@ export async function processUploadModal(state) {
             const layerId = addWorkspaceLayer(newItem);
             newItem.layerId = layerId;
         }
+        // больше не вызываем saveWorkspaceItem – он уже внутри addWorkspaceItem
     }
 
     // Полигоны (KML)
@@ -128,9 +134,26 @@ export async function processUploadModal(state) {
         if (entry.kml) {
             const kmlItem = await addWorkspaceItem(state, entry.kml);
             if (kmlItem && kmlItem.polygonCoords) {
-                newItem.associatedKml = kmlItem.id;
                 const layerId = addWorkspaceLayer(kmlItem);
                 kmlItem.layerId = layerId;
+                newItem.associatedKml = kmlItem.id;
+                // Сохраняем данные KML прямо в аэро
+                newItem.kmlData = {
+                    id: kmlItem.id,
+                    name: kmlItem.name,
+                    type: kmlItem.type,
+                    format: kmlItem.format,
+                    dateAdded: kmlItem.dateAdded,
+                    polygonCoords: kmlItem.polygonCoords,
+                    visibleOnMap: kmlItem.visibleOnMap,
+                    layerId: kmlItem.layerId,
+                };
+                if (window.userRole && window.userRole !== 'guest') {
+                    await updateWorkspaceItem(newItem.id, { associatedKml: kmlItem.id });
+                }
+                // Удаляем KML из общего массива, чтобы не отображался отдельно
+                const idx = state.workspaceItems.findIndex(i => i.id === kmlItem.id);
+                if (idx !== -1) state.workspaceItems.splice(idx, 1);
             }
         }
     }

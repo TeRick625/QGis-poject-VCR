@@ -42,152 +42,152 @@ export const state = {
 
 
     workspaceItems: [
-        // Чистый полигон с подсписком спутниковых снимков
-        {
-            id: 1001,
-            name: 'Полигон Приморский',
-            type: 'polygon',
-            format: 'kml',
-            dateAdded: '2026-04-05T10:00:00Z',
-            sourceFile: null,
-            polygonCoords: [
-                [43.15, 131.88],
-                [43.15, 131.92],
-                [43.10, 131.92],
-                [43.10, 131.88]
-            ],
-            visibleOnMap: true,
-            layerId: 'workspace_1001',
-            associatedKml: null,
-            imageThumbnail: null,
-            subItems: [
-                { id: 2001, name: 'Sentinel-2_2025_04_12.tif', cloud: 12, date: '12.04.2025' },
-                { id: 2002, name: 'Landsat_8_2025_03_28.tif', cloud: 8, date: '28.03.2025' }
-            ]
-        },
-        // Чистый полигон без подсписка
-        {
-            id: 1002,
-            name: 'Полигон Островной',
-            type: 'polygon',
-            format: 'manual',
-            dateAdded: '2026-04-06T12:00:00Z',
-            sourceFile: null,
-            polygonCoords: [
-                [43.01, 131.85],
-                [43.02, 131.85],
-                [43.02, 131.86],
-                [43.01, 131.86]
-            ],
-            visibleOnMap: true,
-            layerId: 'workspace_1002',
-            associatedKml: null,
-            imageThumbnail: null,
-            subItems: null   // или просто не указывать
-        },
-
-        // Спутниковые снимки
-        {
-            id: 2001,
-            name: 'Sentinel-2_2025_04_12.tif',
-            type: 'satellite',
-            format: 'geotiff',
-            dateAdded: '2026-04-12T09:00:00Z',
-            sourceFile: null,
-            polygonCoords: [
-                [43.12, 131.89],
-                [43.14, 131.89],
-                [43.14, 131.91],
-                [43.12, 131.91]
-            ],
-            visibleOnMap: true,
-            layerId: 'workspace_2001',
-            associatedKml: null,
-            imageThumbnail: null
-        },
-        {
-            id: 2002,
-            name: 'Landsat_8_2025_03_28.tif',
-            type: 'satellite',
-            format: 'geotiff',
-            dateAdded: '2026-03-28T11:00:00Z',
-            sourceFile: null,
-            polygonCoords: [
-                [43.08, 131.87],
-                [43.10, 131.87],
-                [43.10, 131.89],
-                [43.08, 131.89]
-            ],
-            visibleOnMap: true,
-            layerId: 'workspace_2002',
-            associatedKml: null,
-            imageThumbnail: null
-        },
-        {
-            id: 2003,
-            name: 'Sentinel-2_2025_05_01.tif',
-            type: 'satellite',
-            format: 'geotiff',
-            dateAdded: '2026-05-01T08:00:00Z',
-            sourceFile: null,
-            polygonCoords: [
-                [43.20, 131.95],
-                [43.22, 131.95],
-                [43.22, 131.97],
-                [43.20, 131.97]
-            ],
-            visibleOnMap: true,
-            layerId: 'workspace_2003',
-            associatedKml: null,
-            imageThumbnail: null
-        },
-        // Аэрофото без KML
-        {
-            id: 3001,
-            name: 'Aero_test_01.png',
-            type: 'aero',
-            format: 'png',
-            dateAdded: '2026-04-05T14:00:00Z',
-            sourceFile: null,
-            polygonCoords: null,
-            visibleOnMap: false,
-            layerId: null,
-            associatedKml: null,
-            imageThumbnail: null
-        },
-
-        // Аэрофото с KML
-        {
-            id: 3002,
-            name: 'Aero_winter_2024.jpg',
-            type: 'aero',
-            format: 'jpg',
-            dateAdded: '2026-04-06T15:00:00Z',
-            sourceFile: null,
-            polygonCoords: null,
-            visibleOnMap: true,
-            layerId: null,
-            associatedKml: 3003,
-            imageThumbnail: null
-        },
-        {
-            id: 3003,
-            name: 'Aero_KML_привязка.kml',
-            type: 'polygon',
-            format: 'kml',
-            dateAdded: '2026-04-06T15:01:00Z',
-            sourceFile: null,
-            polygonCoords: [
-                [43.05, 131.83],
-                [43.06, 131.83],
-                [43.06, 131.84],
-                [43.05, 131.84]
-            ],
-            visibleOnMap: true,
-            layerId: 'workspace_3003',
-            associatedKml: null,
-            imageThumbnail: null
-        }
+//        // Чистый полигон с подсписком спутниковых снимков
+//        {
+//            id: 1001,
+//            name: 'Полигон Приморский',
+//            type: 'polygon',
+//            format: 'kml',
+//            dateAdded: '2026-04-05T10:00:00Z',
+//            sourceFile: null,
+//            polygonCoords: [
+//                [43.15, 131.88],
+//                [43.15, 131.92],
+//                [43.10, 131.92],
+//                [43.10, 131.88]
+//            ],
+//            visibleOnMap: true,
+//            layerId: 'workspace_1001',
+//            associatedKml: null,
+//            imageThumbnail: null,
+//            subItems: [
+//                { id: 2001, name: 'Sentinel-2_2025_04_12.tif', cloud: 12, date: '12.04.2025' },
+//                { id: 2002, name: 'Landsat_8_2025_03_28.tif', cloud: 8, date: '28.03.2025' }
+//            ]
+//        },
+//        // Чистый полигон без подсписка
+//        {
+//            id: 1002,
+//            name: 'Полигон Островной',
+//            type: 'polygon',
+//            format: 'manual',
+//            dateAdded: '2026-04-06T12:00:00Z',
+//            sourceFile: null,
+//            polygonCoords: [
+//                [43.01, 131.85],
+//                [43.02, 131.85],
+//                [43.02, 131.86],
+//                [43.01, 131.86]
+//            ],
+//            visibleOnMap: true,
+//            layerId: 'workspace_1002',
+//            associatedKml: null,
+//            imageThumbnail: null,
+//            subItems: null   // или просто не указывать
+//        },
+//
+//        // Спутниковые снимки
+//        {
+//            id: 2001,
+//            name: 'Sentinel-2_2025_04_12.tif',
+//            type: 'satellite',
+//            format: 'geotiff',
+//            dateAdded: '2026-04-12T09:00:00Z',
+//            sourceFile: null,
+//            polygonCoords: [
+//                [43.12, 131.89],
+//                [43.14, 131.89],
+//                [43.14, 131.91],
+//                [43.12, 131.91]
+//            ],
+//            visibleOnMap: true,
+//            layerId: 'workspace_2001',
+//            associatedKml: null,
+//            imageThumbnail: null
+//        },
+//        {
+//            id: 2002,
+//            name: 'Landsat_8_2025_03_28.tif',
+//            type: 'satellite',
+//            format: 'geotiff',
+//            dateAdded: '2026-03-28T11:00:00Z',
+//            sourceFile: null,
+//            polygonCoords: [
+//                [43.08, 131.87],
+//                [43.10, 131.87],
+//                [43.10, 131.89],
+//                [43.08, 131.89]
+//            ],
+//            visibleOnMap: true,
+//            layerId: 'workspace_2002',
+//            associatedKml: null,
+//            imageThumbnail: null
+//        },
+//        {
+//            id: 2003,
+//            name: 'Sentinel-2_2025_05_01.tif',
+//            type: 'satellite',
+//            format: 'geotiff',
+//            dateAdded: '2026-05-01T08:00:00Z',
+//            sourceFile: null,
+//            polygonCoords: [
+//                [43.20, 131.95],
+//                [43.22, 131.95],
+//                [43.22, 131.97],
+//                [43.20, 131.97]
+//            ],
+//            visibleOnMap: true,
+//            layerId: 'workspace_2003',
+//            associatedKml: null,
+//            imageThumbnail: null
+//        },
+//        // Аэрофото без KML
+//        {
+//            id: 3001,
+//            name: 'Aero_test_01.png',
+//            type: 'aero',
+//            format: 'png',
+//            dateAdded: '2026-04-05T14:00:00Z',
+//            sourceFile: null,
+//            polygonCoords: null,
+//            visibleOnMap: false,
+//            layerId: null,
+//            associatedKml: null,
+//            imageThumbnail: null
+//        },
+//
+//        // Аэрофото с KML
+//        {
+//            id: 3002,
+//            name: 'Aero_winter_2024.jpg',
+//            type: 'aero',
+//            format: 'jpg',
+//            dateAdded: '2026-04-06T15:00:00Z',
+//            sourceFile: null,
+//            polygonCoords: null,
+//            visibleOnMap: true,
+//            layerId: null,
+//            associatedKml: 3003,
+//            imageThumbnail: null
+//        },
+//        {
+//            id: 3003,
+//            name: 'Aero_KML_привязка.kml',
+//            type: 'polygon',
+//            format: 'kml',
+//            dateAdded: '2026-04-06T15:01:00Z',
+//            sourceFile: null,
+//            polygonCoords: [
+//                [43.05, 131.83],
+//                [43.06, 131.83],
+//                [43.06, 131.84],
+//                [43.05, 131.84]
+//            ],
+//            visibleOnMap: true,
+//            layerId: 'workspace_3003',
+//            associatedKml: null,
+//            imageThumbnail: null
+//        }
     ],
 
     coordModalOpen: false,

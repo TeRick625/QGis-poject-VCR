@@ -1,5 +1,9 @@
 // static/js/modules/tab1_table.js
 
+import {
+    saveWorkspaceItem, updateWorkspaceItem, deleteWorkspaceItem
+} from './api_workspace.js';
+
 /** Определить тип файла по расширению */
 export function detectFileType(file) {
     const name = file.name.toLowerCase();
@@ -44,39 +48,24 @@ async function parseKmlCoordinates(file) {
  * @returns {Promise<Array>}
  */
 async function extractSatelliteBounds(file) {
+    const formData = new FormData();
+    formData.append('file', file);
+
     try {
-        const GeoTIFF = window.GeoTIFF;
-        if (!GeoTIFF) throw new Error('GeoTIFF library not loaded');
-        const arrayBuffer = await file.arrayBuffer();
-        const tiff = await GeoTIFF.fromArrayBuffer(arrayBuffer);
-        const image = await tiff.getImage();
-        const bbox = image.getBoundingBox(); // [minX, minY, maxX, maxY] обычно в CRS
-        // Предполагаем, что CRS = EPSG:4326 (широта/долгота)
-        // getBoundingBox возвращает [minLng, minLat, maxLng, maxLat]?
-        // В документации: [minX, minY, maxX, maxY] обычно minX = левая долгота, minY = нижняя широта.
-        const [minLng, minLat, maxLng, maxLat] = bbox;
-        return [
-            [minLat, minLng], // юго-запад
-            [maxLat, minLng], // северо-запад? надо проверить порядок
-            // Правильнее: bbox = [west, south, east, north] (minX=west, minY=south, maxX=east, maxY=north)
-            // Leaflet ожидает lat,lng. Вернём четыре угла прямоугольника: юго-запад, северо-запад, северо-восток, юго-восток.
-            [maxLat, minLng], // северо-запад
-            [maxLat, maxLng], // северо-восток
-            [minLat, maxLng]  // юго-восток
-        ];
+        const response = await fetch('/api/geotiff/bounds', {
+            method: 'POST',
+            body: formData
+        });
+        const data = await response.json();
+        if (data.success) {
+            return data.coordinates;
+        } else {
+            console.error('Ошибка сервера при чтении GeoTIFF:', data.error);
+            return null;
+        }
     } catch (err) {
-        console.warn('Не удалось прочитать GeoTIFF, использую тестовый bounding box', err);
-        // Заглушка на основе имени файла
-        const hash = [...file.name].reduce((acc, ch) => acc + ch.charCodeAt(0), 0);
-        const lat = 43.1 + (hash % 100) / 1000;
-        const lng = 131.86 + (hash % 200) / 1000;
-        const d = 0.02 + (hash % 10) / 200;
-        return [
-            [lat, lng],
-            [lat + d, lng],
-            [lat + d, lng + d],
-            [lat, lng + d]
-        ];
+        console.error('Ошибка запроса к серверу:', err);
+        return null;
     }
 }
 
@@ -100,11 +89,43 @@ export async function addWorkspaceItem(state, file) {
         layerId: null, associatedKml: null, imageThumbnail: null
     };
     state.workspaceItems.push(newItem);
+
+    // Сохраняем на сервер и ждём ответа, чтобы получить реальный id
+    if (window.userRole && window.userRole !== 'guest') {
+        const savedItem = await saveWorkspaceItem(newItem);
+        if (savedItem && savedItem.id) {
+            newItem.id = savedItem.id;   // обновляем id на реальный из БД
+        }
+    }
     return newItem;
 }
 
+export async function detachKmlFromAero(state, aeroId) {
+    const aero = state.workspaceItems.find(i => i.id === aeroId);
+    if (!aero || !aero.associatedKml) return;
+
+    const kmlId = aero.associatedKml;
+    // Убираем связь
+    aero.associatedKml = null;
+
+    // Возвращаем KML в общий список как самостоятельный полигон
+    // Предполагаем, что он уже есть в workspaceItems (он был скрыт фильтром)
+    const kmlItem = state.workspaceItems.find(i => i.id === kmlId);
+    if (kmlItem) {
+        // Уже есть, ничего не делаем
+    } else {
+        // Если вдруг отсутствовал, но такого быть не должно
+    }
+
+    // Обновляем на сервере
+    if (window.userRole && window.userRole !== 'guest') {
+        await updateWorkspaceItem(aeroId, { associatedKml: null });
+        // Снимаем метку дочернего объекта, если нужно (на сервере KML остаётся)
+    }
+}
+
 /** Добавить полигон по координатам */
-export function addPolygonFromCoords(state, coords, name = null) {
+export async function addPolygonFromCoords(state, coords, name = null) {
     if (!coords || coords.length < 3) return null;
     const newItem = {
         id: Date.now() + Math.random(),
@@ -117,11 +138,19 @@ export function addPolygonFromCoords(state, coords, name = null) {
         layerId: null, associatedKml: null, imageThumbnail: null
     };
     state.workspaceItems.push(newItem);
+
+    // Сохраняем на сервер и ждём реального id
+    if (window.userRole && window.userRole !== 'guest') {
+        const savedItem = await saveWorkspaceItem(newItem);
+        if (savedItem && savedItem.id) {
+            newItem.id = savedItem.id;
+        }
+    }
     return newItem;
 }
 
 /** Добавить нарисованный на карте полигон */
-export function addDrawnPolygonToWorkspace(state, coords, layer) {
+export async function addDrawnPolygonToWorkspace(state, coords, layer) {
     const newItem = {
         id: Date.now() + Math.random(),
         name: 'Нарисованный полигон',
@@ -139,6 +168,14 @@ export function addDrawnPolygonToWorkspace(state, coords, layer) {
 
     if (window.registerWorkspaceLayer) window.registerWorkspaceLayer(newItem.layerId, layer);
     if (window.attachLayerEventsToLayer) window.attachLayerEventsToLayer(layer, newItem.id);
+
+    // Сохраняем на сервер и ждём реального id
+    if (window.userRole && window.userRole !== 'guest') {
+        const savedItem = await saveWorkspaceItem(newItem);
+        if (savedItem && savedItem.id) {
+            newItem.id = savedItem.id;
+        }
+    }
     return newItem;
 }
 
@@ -157,11 +194,32 @@ export function removeWorkspaceItem(state, itemId) {
     if (index === -1) return;
     const item = state.workspaceItems[index];
 
+    // Если у удаляемого аэро есть привязанный KML, удаляем и его
+    if (item.associatedKml) {
+        const kmlItem = state.workspaceItems.find(i => i.id === item.associatedKml);
+        if (kmlItem) {
+            if (kmlItem.layerId && window.removeWorkspaceLayer) {
+                window.removeWorkspaceLayer(kmlItem.layerId);
+            }
+            const kmlIdx = state.workspaceItems.indexOf(kmlItem);
+            if (kmlIdx !== -1) state.workspaceItems.splice(kmlIdx, 1);
+            // Удаляем с сервера
+            if (window.userRole && window.userRole !== 'guest') {
+                deleteWorkspaceItem(kmlItem.id);
+            }
+        }
+    }
+
+    // Удаляем слой и сам объект
     if (item.layerId && window.removeWorkspaceLayer) {
         window.removeWorkspaceLayer(item.layerId);
     }
-
     state.workspaceItems.splice(index, 1);
+
+    // Удаляем с сервера основной объект
+    if (window.userRole && window.userRole !== 'guest') {
+        deleteWorkspaceItem(itemId);
+    }
 }
 
 export function toggleItemVisibility(state, itemId) {
@@ -177,6 +235,9 @@ export function toggleItemVisibility(state, itemId) {
         }
     } else {
         if (item.layerId && window.hideWorkspaceLayer) window.hideWorkspaceLayer(item.layerId);
+    }
+    if (window.userRole && window.userRole !== 'guest') {
+        updateWorkspaceItem(itemId, { visibleOnMap: item.visibleOnMap });
     }
 }
 
@@ -292,4 +353,65 @@ export function applyRename(state) {
 export function cancelRename(state) {
     state.renamingItemId = null;
     state.renamingValue = '';
+}
+
+// Удалить аэро, оставив связанный KML как самостоятельный полигон
+export async function removeAeroItem(state, aeroId) {
+    const aero = state.workspaceItems.find(i => i.id === aeroId);
+    if (!aero || aero.type !== 'aero' || !aero.associatedKml) {
+        // если нет KML, просто удаляем обычным способом
+        removeWorkspaceItem(state, aeroId);
+        return;
+    }
+
+    // Отвязываем KML
+    const kmlId = aero.associatedKml;
+    aero.associatedKml = null;
+
+    // Обновляем сервер (убираем связь у аэро перед удалением, но мы удалим аэро, поэтому можно просто удалить аэро, а KML останется)
+    // Удаляем аэро с сервера
+    if (window.userRole && window.userRole !== 'guest') {
+        await deleteWorkspaceItem(aeroId);
+    }
+
+    // Удаляем аэро из локального массива и карты
+    const index = state.workspaceItems.findIndex(i => i.id === aeroId);
+    if (index !== -1) {
+        if (aero.layerId && window.removeWorkspaceLayer) {
+            window.removeWorkspaceLayer(aero.layerId);
+        }
+        state.workspaceItems.splice(index, 1);
+    }
+
+    // Теперь KML должен стать видимым в таблице (фильтр linkedKmlIds больше не будет его скрывать)
+    // Никаких дополнительных действий не требуется, перерисовка произойдёт автоматически
+}
+
+// Удалить KML, оставив аэро без привязки
+export async function removeKmlFromAero(state, aeroId) {
+    const aero = state.workspaceItems.find(i => i.id === aeroId);
+    if (!aero || !aero.associatedKml) return;
+
+    const kmlId = aero.associatedKml;
+    aero.associatedKml = null;
+
+    // Удаляем KML с сервера
+    if (window.userRole && window.userRole !== 'guest') {
+        await deleteWorkspaceItem(kmlId);
+    }
+
+    // Удаляем KML из локального массива и карты
+    const kmlItem = state.workspaceItems.find(i => i.id === kmlId);
+    if (kmlItem) {
+        if (kmlItem.layerId && window.removeWorkspaceLayer) {
+            window.removeWorkspaceLayer(kmlItem.layerId);
+        }
+        const kmlIdx = state.workspaceItems.indexOf(kmlItem);
+        if (kmlIdx !== -1) state.workspaceItems.splice(kmlIdx, 1);
+    }
+
+    // Обновляем аэро на сервере (убираем associatedKml)
+    if (window.userRole && window.userRole !== 'guest') {
+        await updateWorkspaceItem(aeroId, { associatedKml: null });
+    }
 }

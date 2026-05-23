@@ -13,18 +13,25 @@
             background: rgba(255, 255, 255, 0.95);
             backdrop-filter: blur(10px);
         }
+        .required:after {
+            content: " *";
+            color: #ef4444;
+        }
     </style>
+    <script type="module" src="{{ url_for('static', filename='js/modules/login.js') }}"></script>
+    <script defer src="{{ url_for('static', filename='js/alpine.js') }}"></script>
 </head>
-<body class="min-h-screen flex items-center justify-center">
+<body class="min-h-screen flex items-center justify-center" x-data="login">
     <div class="card max-w-md w-full mx-4 p-10 rounded-3xl shadow-2xl">
-        <div class="text-center mb-10">
+        <div class="text-center mb-8">
             <h1 class="text-4xl font-bold text-slate-800 mb-2">BioGIS</h1>
             <p class="text-slate-500 text-lg">Анализатор спутниковых снимков</p>
         </div>
 
-        <div class="space-y-4">
+        <!-- ===== 1. Стартовый экран (выбор варианта) ===== -->
+        <div x-show="isStart">
             <!-- Гость -->
-            <form method="POST" action="{{ url_for('login') }}">
+            <form method="POST" class="mb-6">
                 <input type="hidden" name="mode" value="guest">
                 <button type="submit"
                         class="w-full py-4 px-6 bg-emerald-600 hover:bg-emerald-700 text-white font-medium rounded-2xl transition-all flex items-center justify-center gap-3 text-lg">
@@ -39,31 +46,103 @@
                     <div class="w-full border-t border-slate-300"></div>
                 </div>
                 <div class="relative flex justify-center text-sm">
-                    <span class="bg-white px-4 text-slate-500">или войдите в аккаунт</span>
+                    <span class="bg-white px-4 text-slate-500">или</span>
                 </div>
             </div>
 
-            <!-- Вход / Регистрация -->
-            <div class="grid grid-cols-2 gap-4">
-                <form method="POST" action="{{ url_for('login') }}">
-                    <input type="hidden" name="mode" value="login">
-                    <button type="submit"
-                            class="w-full py-4 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-2xl transition-all">
-                        Войти
-                    </button>
-                </form>
-
-                <form method="POST" action="{{ url_for('login') }}">
-                    <input type="hidden" name="mode" value="register">
-                    <button type="submit"
-                            class="w-full py-4 bg-slate-700 hover:bg-slate-800 text-white font-medium rounded-2xl transition-all">
-                        Регистрация
-                    </button>
-                </form>
+            <!-- Кнопки Войти / Регистрация -->
+            <div class="grid grid-cols-2 gap-4 mt-6">
+                <button @click="goToLogin()"
+                        class="py-3 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-xl transition-all">
+                    Войти
+                </button>
+                <button @click="goToRegister()"
+                        class="py-3 bg-slate-200 hover:bg-slate-300 text-slate-700 font-medium rounded-xl transition-all">
+                    Регистрация
+                </button>
             </div>
         </div>
 
-        <div class="mt-10 text-center text-xs text-slate-400">
+        <!-- ===== 2. Форма входа ===== -->
+        <div x-show="isLogin">
+            <div class="flex items-center mb-6">
+                <button @click="goBackToStart()" class="text-blue-600 hover:text-blue-800 mr-3 text-lg leading-none" title="Назад">←</button>
+                <h2 class="text-xl font-semibold text-slate-800">Войти</h2>
+            </div>
+
+            <form method="POST" @submit.prevent="if(validateForm()) $el.submit()">
+                <input type="hidden" name="mode" value="login">
+
+                <div x-show="errorMessage" class="mb-4 p-3 bg-red-50 border border-red-300 text-red-700 rounded-xl text-sm text-center"
+                     x-text="errorMessage"></div>
+
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-slate-600 mb-1 required">Email</label>
+                        <input type="email" name="email" x-model="email"
+                               class="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-sm focus:outline-none focus:border-blue-600">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-slate-600 mb-1 required">Пароль</label>
+                        <input type="password" name="password" x-model="password"
+                               class="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-sm focus:outline-none focus:border-blue-600">
+                    </div>
+                    <button type="submit"
+                            class="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-xl transition-all">
+                        Войти
+                    </button>
+                </div>
+            </form>
+        </div>
+
+        <!-- ===== 3. Форма регистрации ===== -->
+        <div x-show="isRegister">
+            <div class="flex items-center mb-6">
+                <button @click="goBackToStart()" class="text-blue-600 hover:text-blue-800 mr-3 text-lg leading-none" title="Назад">←</button>
+                <h2 class="text-xl font-semibold text-slate-800">Регистрация</h2>
+            </div>
+
+            <form method="POST" @submit.prevent="if(validateForm()) $el.submit()">
+                <input type="hidden" name="mode" value="register">
+
+                <div x-show="errorMessage" class="mb-4 p-3 bg-red-50 border border-red-300 text-red-700 rounded-xl text-sm text-center"
+                     x-text="errorMessage"></div>
+
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-slate-600 mb-1 required">Фамилия</label>
+                        <input type="text" name="surname" x-model="surname"
+                               class="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-sm focus:outline-none focus:border-blue-600">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-slate-600 mb-1 required">Имя</label>
+                        <input type="text" name="name" x-model="name"
+                               class="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-sm focus:outline-none focus:border-blue-600">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-slate-600 mb-1">Отчество</label>
+                        <input type="text" name="patronymic" x-model="patronymic"
+                               class="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-sm focus:outline-none focus:border-blue-600">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-slate-600 mb-1 required">Email</label>
+                        <input type="email" name="email" x-model="email"
+                               class="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-sm focus:outline-none focus:border-blue-600">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-slate-600 mb-1 required">Пароль</label>
+                        <input type="password" name="password" x-model="password"
+                               class="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-sm focus:outline-none focus:border-blue-600">
+                    </div>
+                    <button type="submit"
+                            class="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-xl transition-all">
+                        Зарегистрироваться
+                    </button>
+                </div>
+            </form>
+        </div>
+
+        <div class="mt-8 text-center text-xs text-slate-400">
             Для научных и образовательных целей © 2026
         </div>
     </div>

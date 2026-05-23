@@ -22,7 +22,8 @@ import {
     addWorkspaceItem, removeWorkspaceItem, toggleItemVisibility,
     addPolygonFromCoords,
     getFilteredSortedItems,
-    startRenameItem, applyRename, cancelRename
+    startRenameItem, applyRename, cancelRename, detachKmlFromAero,
+    removeAeroItem, removeKmlFromAero, addDrawnPolygonToWorkspace
 } from '/static/js/modules/tab1_table.js';
 
 import { addWorkspaceLayer, removeWorkspaceLayer, showWorkspaceLayer, hideWorkspaceLayer } from '/static/js/map.js';
@@ -31,10 +32,14 @@ import {
     openUploadModal, setUploadFiles, addAeroEntries,
     attachKmlToAeroEntry, removeAeroEntry, processUploadModal
 } from '/static/js/modules/tab1_modalupload.js';
+
+import {
+    loadWorkspaceFromServer
+} from '/static/js/modules/api_workspace.js';
+
 document.addEventListener('alpine:init', () => {
     Alpine.data('analyzer', () => ({
         state,
-
         // ==================== ВКЛАДКА 1 ====================
         // Состояния подсветки и редактирования – прокси к state
         get highlightedItemId() { return this.state.highlightedItemId; },
@@ -149,28 +154,47 @@ document.addEventListener('alpine:init', () => {
 
         // Добавление нарисованного полигона (вызывается из map.js)
         addDrawnPolygonToWorkspace(coords, layer) {
-            const newItem = {
-                id: Date.now() + Math.random(),
-                name: 'Нарисованный полигон',
-                type: 'polygon', format: 'manual',
-                dateAdded: new Date().toISOString(),
-                sourceFile: null,
-                polygonCoords: coords,
-                visibleOnMap: true,
-                layerId: null, associatedKml: null, imageThumbnail: null
-            };
-            this.state.workspaceItems.push(newItem);
-            newItem.layerId = 'workspace_' + newItem.id;
-            layer._workspaceLayerId = newItem.layerId;
-            newItem._leafletLayer = layer;
-
-            if (window.registerWorkspaceLayer) window.registerWorkspaceLayer(newItem.layerId, layer);
-            if (window.attachLayerEventsToLayer) window.attachLayerEventsToLayer(layer, newItem.id);
+            addDrawnPolygonToWorkspace(this.state, coords, layer);
         },
 
-                // ==================== СОРТИРОВКА, ФИЛЬТРАЦИЯ, ПЕРЕИМЕНОВАНИЕ ====================
+        // ==================== СОРТИРОВКА, ФИЛЬТРАЦИЯ, ПЕРЕИМЕНОВАНИЕ ====================
+
         get filteredSortedItems() {
+            // Базовая фильтрация и сортировка из модуля
             return getFilteredSortedItems(this.state);
+        },
+
+        get flattenedItems() {
+            const result = [];
+            for (const item of this.filteredSortedItems) {
+                result.push(item);
+                // Если у аэро есть сохранённые данные KML, добавляем дочернюю строку
+                if (item.type === 'aero' && item.kmlData) {
+                    result.push({
+                        ...item.kmlData,
+                        isKmlChild: true,
+                        parentAeroId: item.id,
+                        parentAeroName: item.name
+                    });
+                }
+            }
+            return result;
+        },
+
+        getKmlForAero(aeroItem) {
+            if (!aeroItem.associatedKml) return [];
+            // Приводим к числу для надёжности
+            const kmlId = Number(aeroItem.associatedKml);
+            const kml = this.state.workspaceItems.find(i => i.id === kmlId);
+            return kml ? [kml] : [];
+        },
+
+        removeAeroItem(aeroId) {
+            removeAeroItem(this.state, aeroId);
+        },
+
+        removeKmlFromAero(aeroId) {
+            removeKmlFromAero(this.state, aeroId);
         },
 
         toggleFilter(type) {
@@ -419,6 +443,14 @@ document.addEventListener('alpine:init', () => {
             }
         },
 
+
+
+        // ==================== АКТИВАЦИЯ API МЕТОДОВ ====================
+        // === Загрузка рабочей области с сервера ===
+        loadWorkspaceFromServer() {
+            loadWorkspaceFromServer(this.state, this.$nextTick.bind(this));
+        },
+
         initCurrentTab() {
             if (this.state.currentTab === 0) this.initTab1();
             else if (this.state.currentTab === 1) this.initTab2();
@@ -476,6 +508,10 @@ document.addEventListener('alpine:init', () => {
                     this.state.dryingLayerOpacity = newVal.dryingLayerOpacity ?? 0.8;
                 }
             });
+
+            // ============ API методы ============
+            this.loadWorkspaceFromServer();
         },
     }));
 });
+
