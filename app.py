@@ -32,13 +32,10 @@ Path("results/masks").mkdir(exist_ok=True)
 
 # ====================== ФУНКЦИИ УПРАВЛЕНИЯ БД ======================
 def init_db():
-    """Создать все таблицы заново (при необходимости)."""
     with app.app_context():
         db.create_all()
         print("✅ Таблицы созданы/обновлены.")
 
-
-# # Раскомментируйте следующую строку, чтобы пересоздать таблицы при старте:
 # with app.app_context():
 #     db.create_all()
 
@@ -76,7 +73,7 @@ def geotiff_bounds():
 
     try:
         with rasterio.open(BytesIO(file.read())) as src:
-            bounds = src.bounds  # left, bottom, right, top
+            bounds = src.bounds
             if src.crs and src.crs.to_epsg() != 4326:
                 left, bottom, right, top = transform_bounds(src.crs, 'EPSG:4326', *bounds)
             else:
@@ -85,10 +82,10 @@ def geotiff_bounds():
             return jsonify({
                 "success": True,
                 "coordinates": [
-                    [bottom, left],  # юго-запад
-                    [top, left],     # северо-запад
-                    [top, right],    # северо-восток
-                    [bottom, right]  # юго-восток
+                    [bottom, left],
+                    [top, left],
+                    [top, right],
+                    [bottom, right]
                 ]
             })
     except Exception as e:
@@ -100,31 +97,28 @@ def save_polygon():
     data = request.get_json()
     if not data or "geojson" not in data:
         return jsonify({"error": "No geojson"}), 400
-
-    # Пока сохраняем в сессию (позже можно в БД или Redis)
     session["current_polygon"] = data["geojson"]
     return jsonify({"success": True, "message": "Полигон сохранён"})
 
 
 def workspace_item_to_dict(item):
-    """Сериализует WorkspaceItem в словарь для JSON."""
     return {
         "id": item.id,
         "name": item.name,
         "type": item.type,
         "format": item.format,
         "dateAdded": item.date_added.isoformat() if item.date_added else None,
-        "polygonCoords": item.polygon_coords,         # уже JSON
+        "polygonCoords": item.polygon_coords,
         "visibleOnMap": item.visible_on_map,
         "layerId": item.layer_id,
         "associatedKml": item.associated_kml_id,
-        "imageThumbnail": None  # пока не храним
+        "imageThumbnail": None,
+        "children_ids": [child.id for child in item.children]   # ← добавлено
     }
 
 
 @app.route("/api/workspace", methods=["GET", "POST"])
 def workspace():
-    # Гостю запрещено сохранять и загружать
     if "user" not in session:
         return jsonify({"error": "Not logged in"}), 401
     if session["user"]["role"] == "guest":
@@ -132,7 +126,6 @@ def workspace():
 
     user_id = session["user"]["id"]
 
-    # ---- GET ----
     if request.method == "GET":
         items = WorkspaceItem.query.filter_by(user_id=user_id).all()
         return jsonify({
@@ -140,7 +133,6 @@ def workspace():
             "data": [workspace_item_to_dict(i) for i in items]
         })
 
-    # ---- POST ----
     if request.method == "POST":
         data = request.get_json()
         if not data:
@@ -149,10 +141,11 @@ def workspace():
         name = data.get("name", "Без имени")
         item_type = data.get("type")
         item_format = data.get("format", "")
-        coords = data.get("polygonCoords")   # массив [[lat,lng],...]
+        coords = data.get("polygonCoords")
         visible = data.get("visibleOnMap", True)
         layer_id = data.get("layerId", None)
         associated_kml = data.get("associatedKml", None)
+        parent_id = data.get("parent_id")          # новое поле
 
         if item_type not in ("polygon", "satellite", "aero"):
             return jsonify({"error": "Invalid type"}), 400
@@ -168,6 +161,14 @@ def workspace():
             associated_kml_id=associated_kml
         )
         db.session.add(new_item)
+        db.session.flush()  # получаем id
+
+        # если передан parent_id, устанавливаем связь
+        if parent_id:
+            parent = WorkspaceItem.query.get(parent_id)
+            if parent and parent.user_id == user_id:
+                parent.children.append(new_item)
+
         db.session.commit()
 
         return jsonify({
@@ -178,7 +179,6 @@ def workspace():
 
 @app.route("/api/workspace/<int:item_id>", methods=["PUT", "DELETE"])
 def workspace_item(item_id):
-    """Обновить или удалить объект рабочей области."""
     if "user" not in session:
         return jsonify({"error": "Not logged in"}), 401
     if session["user"]["role"] == "guest":
@@ -189,13 +189,11 @@ def workspace_item(item_id):
     if not item:
         return jsonify({"error": "Объект не найден или нет прав"}), 404
 
-    # ---- DELETE ----
     if request.method == "DELETE":
         db.session.delete(item)
         db.session.commit()
         return jsonify({"success": True})
 
-    # ---- PUT ----
     if request.method == "PUT":
         data = request.get_json()
         if not data:
@@ -219,13 +217,36 @@ def workspace_item(item_id):
         })
 
 
+# ========== НОВЫЙ ЭНДПОИНТ СВЯЗЕЙ ==========
+@app.route("/api/workspace/<int:parent_id>/link/<int:child_id>", methods=["POST", "DELETE"])
+def link_items(parent_id, child_id):
+    if "user" not in session or session["user"]["role"] == "guest":
+        return jsonify({"error": "Not allowed"}), 403
+
+    parent = WorkspaceItem.query.get(parent_id)
+    child = WorkspaceItem.query.get(child_id)
+    if not parent or not child:
+        return jsonify({"error": "Item not found"}), 404
+
+    if request.method == "POST":
+        if child not in parent.children:
+            parent.children.append(child)
+            db.session.commit()
+        return jsonify({"success": True})
+
+    # DELETE
+    if child in parent.children:
+        parent.children.remove(child)
+        db.session.commit()
+    return jsonify({"success": True})
+
+
 # ====================== ROUTES (HTML) ======================
 @app.route("/login", methods=["GET", "POST"])
 def login():
+    # без изменений
     if request.method == "POST":
         mode = request.form.get("mode")
-
-        # Гостевой вход
         if mode == "guest":
             session["user"] = {"name": "Гость", "role": "guest"}
             flash("Вы вошли как гость", "success")
@@ -233,17 +254,14 @@ def login():
 
         email = request.form.get("email")
         password = request.form.get("password")
-
         if not email or not password:
             flash("Заполните email и пароль", "danger")
             return redirect(url_for("login"))
 
-        # Регистрация
         if mode == "register":
             surname = request.form.get("surname", "").strip()
             name = request.form.get("name", "").strip()
             patronymic = request.form.get("patronymic", "").strip()
-
             if not surname or not name:
                 flash("Фамилия и имя обязательны", "danger")
                 return redirect(url_for("login"))
@@ -275,7 +293,6 @@ def login():
             flash("Регистрация прошла успешно! Добро пожаловать.", "success")
             return redirect(url_for("index"))
 
-        # Вход
         if mode == "login":
             user = User.query.filter_by(email=email).first()
             if user and check_password_hash(user.password_hash, password):

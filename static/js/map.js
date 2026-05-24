@@ -1,7 +1,13 @@
 // static/js/map.js
+
+
 let mapInstance = null;
 let editableFeatureGroup = null;
-let workspaceLayers = {};
+export const workspaceLayers = {};
+
+export function getMapInstance() {
+    return mapInstance;
+}
 
 function initMap() {
     const mapContainer = document.getElementById('map');
@@ -93,6 +99,10 @@ function initMap() {
         });
     });
 
+    // Сигнал для отложенных операций, ожидающих карту
+    if (typeof window.onMapReady === 'function') {
+        window.onMapReady();
+    }
     console.log("✅ Карта успешно инициализирована (Владивосток)");
 }
 
@@ -337,3 +347,4 @@ window.cancelLayerEdit = cancelLayerEdit;
 window.fitBoundsToLayer = fitBoundsToLayer;
 window.registerWorkspaceLayer = registerWorkspaceLayer;
 window.attachLayerEventsToLayer = attachLayerEventsToLayer;
+window._workspaceLayers = workspaceLayers;

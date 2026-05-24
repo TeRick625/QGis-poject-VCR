@@ -22,7 +22,7 @@ import {
     addWorkspaceItem, removeWorkspaceItem, toggleItemVisibility,
     addPolygonFromCoords,
     getFilteredSortedItems,
-    startRenameItem, applyRename, cancelRename, detachKmlFromAero,
+    startRenameItem, applyRename, cancelRename,
     removeAeroItem, removeKmlFromAero, addDrawnPolygonToWorkspace
 } from '/static/js/modules/tab1_table.js';
 
@@ -41,7 +41,6 @@ document.addEventListener('alpine:init', () => {
     Alpine.data('analyzer', () => ({
         state,
         // ==================== ВКЛАДКА 1 ====================
-        // Состояния подсветки и редактирования – прокси к state
         get highlightedItemId() { return this.state.highlightedItemId; },
         set highlightedItemId(v) { this.state.highlightedItemId = v; },
         get selectedWorkspaceItemId() { return this.state.selectedWorkspaceItemId; },
@@ -49,10 +48,8 @@ document.addEventListener('alpine:init', () => {
         get editingItemId() { return this.state.editingItemId; },
         set editingItemId(v) { this.state.editingItemId = v; },
 
-        // Инициализация вкладки 1 (пустая, всё реактивно)
         initTab1() {},
 
-        // Модальное окно координат
         openCoordModal() { this.state.coordModalOpen = true; },
         addCoordPoint() { this.state.coordInputs.push({ value: '' }); },
         removeCoordPoint(index) {
@@ -82,7 +79,6 @@ document.addEventListener('alpine:init', () => {
             }
         },
 
-        // Удаление и видимость
         toggleItemVisibility(itemId) {
             toggleItemVisibility(this.state, itemId);
         },
@@ -90,7 +86,13 @@ document.addEventListener('alpine:init', () => {
             removeWorkspaceItem(this.state, itemId);
         },
 
-        // Подсветка и выделение
+        removeAeroItem(itemId) {
+            removeAeroItem(this.state, itemId);
+        },
+        removeKmlFromAero(aeroId) {
+            removeKmlFromAero(this.state, aeroId);
+        },
+
         highlightTableRow(itemId, flag) {
             this.state.highlightedItemId = flag ? itemId : null;
         },
@@ -107,16 +109,13 @@ document.addEventListener('alpine:init', () => {
             if (window.fitBoundsToLayer) window.fitBoundsToLayer(item.layerId);
         },
 
-        // Редактирование полигона
         startEditItem(item) {
             if (!window.startEditLayer) return;
-            // Если уже редактируем этот же – выключаем
             if (this.state.editingItemId === item.id) {
                 window.cancelLayerEdit(item.layerId);
                 this.state.editingItemId = null;
                 return;
             }
-            // Выключаем предыдущее редактирование, если есть
             if (this.state.editingItemId) {
                 const prev = this.state.workspaceItems.find(i => i.id === this.state.editingItemId);
                 if (prev) window.cancelLayerEdit(prev.layerId);
@@ -125,7 +124,6 @@ document.addEventListener('alpine:init', () => {
             this.state.editingItemId = item.id;
         },
 
-        // Сохранить редактирование (вызывается из панели)
         saveCurrentEdit() {
             const item = this.state.workspaceItems.find(i => i.id === this.state.editingItemId);
             if (item && window.saveLayerEdit) {
@@ -134,7 +132,6 @@ document.addEventListener('alpine:init', () => {
             this.state.editingItemId = null;
         },
 
-        // Отменить редактирование (вызывается из панели)
         cancelCurrentEdit() {
             const item = this.state.workspaceItems.find(i => i.id === this.state.editingItemId);
             if (item && window.cancelLayerEdit) {
@@ -143,16 +140,12 @@ document.addEventListener('alpine:init', () => {
             this.state.editingItemId = null;
         },
 
-        // Вызывается из map.js при завершении редактирования (EDITSTOP) – на всякий случай
         finishEditLayer(layerId) {
-            // Если завершили редактирование не через нашу кнопку, сбросим состояние
             if (this.state.editingItemId && this.state.workspaceItems.find(i => i.layerId === layerId)) {
                 this.state.editingItemId = null;
             }
         },
 
-
-        // Добавление нарисованного полигона (вызывается из map.js)
         addDrawnPolygonToWorkspace(coords, layer) {
             addDrawnPolygonToWorkspace(this.state, coords, layer);
         },
@@ -160,41 +153,47 @@ document.addEventListener('alpine:init', () => {
         // ==================== СОРТИРОВКА, ФИЛЬТРАЦИЯ, ПЕРЕИМЕНОВАНИЕ ====================
 
         get filteredSortedItems() {
-            // Базовая фильтрация и сортировка из модуля
             return getFilteredSortedItems(this.state);
         },
 
         get flattenedItems() {
             const result = [];
-            for (const item of this.filteredSortedItems) {
+            const visited = new Set();
+
+
+            // Собираем все id, которые являются чьими-то детьми
+            const allChildIds = new Set();
+            for (const item of this.state.workspaceItems) {
+                if (item.children_ids) {
+                    item.children_ids.forEach(id => allChildIds.add(id));
+                }
+            }
+
+            const addItem = (item, depth = 0, parentId = null) => {
+                if (visited.has(item.id)) return;
+                visited.add(item.id);
                 result.push(item);
-                // Если у аэро есть сохранённые данные KML, добавляем дочернюю строку
-                if (item.type === 'aero' && item.kmlData) {
-                    result.push({
-                        ...item.kmlData,
-                        isKmlChild: true,
-                        parentAeroId: item.id,
-                        parentAeroName: item.name
-                    });
+                const childIds = item.children_ids || [];
+                for (const childId of childIds) {
+                    const child = this.state.workspaceItems.find(i => i.id === childId);
+                    if (child) {
+                        result.push({
+                            ...child,
+                            isChild: true,
+                            parentId: parentId || item.id,
+                            depth: depth + 1
+                        });
+                    }
+                }
+            };
+
+            // Добавляем только те элементы, которые НЕ являются чьими-то детьми
+            for (const item of getFilteredSortedItems(this.state)) {
+                if (!allChildIds.has(item.id)) {
+                    addItem(item);
                 }
             }
             return result;
-        },
-
-        getKmlForAero(aeroItem) {
-            if (!aeroItem.associatedKml) return [];
-            // Приводим к числу для надёжности
-            const kmlId = Number(aeroItem.associatedKml);
-            const kml = this.state.workspaceItems.find(i => i.id === kmlId);
-            return kml ? [kml] : [];
-        },
-
-        removeAeroItem(aeroId) {
-            removeAeroItem(this.state, aeroId);
-        },
-
-        removeKmlFromAero(aeroId) {
-            removeKmlFromAero(this.state, aeroId);
         },
 
         toggleFilter(type) {
@@ -206,11 +205,10 @@ document.addEventListener('alpine:init', () => {
                 this.state.workspaceSortAsc = !this.state.workspaceSortAsc;
             } else {
                 this.state.workspaceSort = field;
-                this.state.workspaceSortAsc = false; // по умолчанию по убыванию
+                this.state.workspaceSortAsc = false;
             }
         },
 
-        // Переименование
         startRenameItem(itemId) {
             startRenameItem(this.state, itemId);
         },
@@ -224,14 +222,13 @@ document.addEventListener('alpine:init', () => {
         // ==================== МОДАЛЬНОЕ ОКНО ЗАГРУЗКИ ====================
 
         openUploadModal() {
-            // Сохраняем ссылку на state для колбэка attachKml
             window.__uploadModalState = this.state;
             openUploadModal(this.state);
         },
 
         openUploadModalFor(type) {
-            this.openUploadModal();                  // сначала сбрасываем всё
-            this.state.uploadModal.activeSection = type;   // затем устанавливаем нужную секцию
+            this.openUploadModal();
+            this.state.uploadModal.activeSection = type;
             this.$nextTick(() => {
                 const section = document.getElementById('upload-' + type);
                 if (section) {
@@ -239,7 +236,6 @@ document.addEventListener('alpine:init', () => {
                 }
             });
         },
-
 
         setUploadFiles(type, files) {
             setUploadFiles(type, files, this.state);
@@ -274,7 +270,6 @@ document.addEventListener('alpine:init', () => {
         runAnalysis() { runAnalysis(this.state, this); },
         get canRunAnalysis() { return getCanRunAnalysis(this.state); },
 
-        // Модальное окно поиска
         openFindImagesModal() { openFindImagesModal(this.state); },
         closeFindImagesModal() { closeFindImagesModal(this.state); },
         get selectedImages() { return getSelectedImages(this.state); },
@@ -291,12 +286,11 @@ document.addEventListener('alpine:init', () => {
         openActivationModal() {
             this.state.activationModalOpen = true;
             this.state.activationMethod = null;
-            this.state.activationShowParams = false;   // сброс формы
+            this.state.activationShowParams = false;
             this.state.uploadedSnapshots = [];
         },
 
         startMultidateWithFound() {
-            // 1) Проверяем подсписок полигона (subItems)
             const polygon = this.state.workspaceItems.find(i => i.id === this.state.selectedAreaId);
             if (polygon && polygon.subItems && polygon.subItems.length > 0) {
                 this.state.activationMethod = 'found';
@@ -304,7 +298,6 @@ document.addEventListener('alpine:init', () => {
                 this.runAnalysis();
                 return;
             }
-            // 2) Иначе – снимки из модального окна «Найти снимки»
             if (this.state.selectedImageIds.length === 0) {
                 alert('Сначала найдите и выберите снимки через «Найти снимки».');
                 return;
@@ -315,12 +308,10 @@ document.addEventListener('alpine:init', () => {
         },
 
         startMultidateWithParams() {
-            // Показываем форму параметров внутри этого же окна
             this.state.activationShowParams = true;
         },
 
         submitParamsAndRun() {
-            // Закрываем окно и запускаем анализ с имитацией по параметрам
             this.state.activationMethod = 'params';
             this.state.activationModalOpen = false;
             this.state.activationShowParams = false;
@@ -328,22 +319,18 @@ document.addEventListener('alpine:init', () => {
         },
 
         cancelParamsForm() {
-            // Возврат к выбору способа
             this.state.activationShowParams = false;
         },
 
         handleMultidateUpload(event) { /* без изменений */ },
         async startMultidateWithUpload() { /* без изменений */ },
 
-
-        // Результат
         applyResultState() { applyResultState(this.state); },
         renderResultMode() { renderResultMode(this.state); },
         selectHistoryItem(index) { selectHistoryItem(index, this.state); },
 
         // ==================== ГЕТТЕРЫ ====================
 
-        // Индекс текущего просматриваемого снимка (левый ползунок)
         get multidateSnapshotIndex() {
             return this.state.activeResult?.snapshotIndex ?? 0;
         },
@@ -354,7 +341,6 @@ document.addEventListener('alpine:init', () => {
             }
         },
 
-        // Начало диапазона (левый маркер двойного ползунка)
         get multidateRangeStart() {
             return this.state.activeResult?.rangeStart ?? 0;
         },
@@ -362,14 +348,12 @@ document.addEventListener('alpine:init', () => {
             const v = Number(val);
             if (this.state.activeResult) {
                 this.state.activeResult.rangeStart = v;
-                // Гарантируем порядок
                 if (v > this.state.activeResult.rangeEnd) {
                     this.state.activeResult.rangeEnd = v;
                 }
             }
         },
 
-        // Конец диапазона (правый маркер двойного ползунка)
         get multidateRangeEnd() {
             return this.state.activeResult?.rangeEnd ?? 0;
         },
@@ -383,36 +367,27 @@ document.addEventListener('alpine:init', () => {
             }
         },
 
-        get linkedKmlIds() {
-            // Собираем id всех полигонов, на которые ссылаются associatedKml у аэро
-            const ids = new Set();
-            for (const item of this.state.workspaceItems) {
-                if (item.associatedKml) ids.add(item.associatedKml);
-            }
-            return ids;
-        },
-
         get areasFiltered() {
-            // Чистые полигоны (не привязанные к аэро) и не являющиеся чьим-то associatedKml
+            const childIdsSet = new Set();
+            for (const item of this.state.workspaceItems) {
+                if (item.children_ids) {
+                    item.children_ids.forEach(id => childIdsSet.add(id));
+                }
+            }
             return this.state.workspaceItems.filter(item =>
-                item.type === 'polygon' &&
-                !item.associatedKml &&
-                !this.linkedKmlIds.has(item.id)
+                item.type === 'polygon' && !childIdsSet.has(item.id)
             );
         },
 
         get satellitesFiltered() {
-            // Собираем id всех спутников, которые уже привязаны к полигонам через subItems
-            const attachedIds = new Set();
+            const childIdsSet = new Set();
             for (const item of this.state.workspaceItems) {
-                if (item.type === 'polygon' && item.subItems) {
-                    for (const sub of item.subItems) {
-                        attachedIds.add(sub.id);
-                    }
+                if (item.children_ids) {
+                    item.children_ids.forEach(id => childIdsSet.add(id));
                 }
             }
             return this.state.workspaceItems.filter(item =>
-                item.type === 'satellite' && !attachedIds.has(item.id)
+                item.type === 'satellite' && !childIdsSet.has(item.id)
             );
         },
 
@@ -420,19 +395,10 @@ document.addEventListener('alpine:init', () => {
             return this.state.workspaceItems.filter(item => item.type === 'aero');
         },
 
-        getKmlForAero(aeroItem) {
-            if (!aeroItem.associatedKml) return [];
-            const kml = this.state.workspaceItems.find(i => i.id === aeroItem.associatedKml);
-            return kml ? [kml] : [];
-        },
-
-
-        // Режим алгоритма
         get algorithmMode() {
             return determineAlgorithmMode(this.state);
         },
 
-        // Прозрачность слоя точек усыхания (для спутниковых алгоритмов)
         get dryingLayerOpacity() {
             return this.state.dryingLayerOpacity;
         },
@@ -443,10 +409,7 @@ document.addEventListener('alpine:init', () => {
             }
         },
 
-
-
         // ==================== АКТИВАЦИЯ API МЕТОДОВ ====================
-        // === Загрузка рабочей области с сервера ===
         loadWorkspaceFromServer() {
             loadWorkspaceFromServer(this.state, this.$nextTick.bind(this));
         },
@@ -464,11 +427,16 @@ document.addEventListener('alpine:init', () => {
             console.log("✅ Alpine 'analyzer' компонент инициализирован");
             const self = this;
 
-            // Глобальные колбэки для map.js
             window.addDrawnPolygonToWorkspace = (coords, layer) => self.addDrawnPolygonToWorkspace(coords, layer);
-            window.updateWorkspacePolygonCoords = (layerId, coords) => {
+            window.updateWorkspacePolygonCoords = async (layerId, coords) => {
                 const item = self.state.workspaceItems.find(i => i.layerId === layerId);
-                if (item) item.polygonCoords = coords;
+                if (item) {
+                    item.polygonCoords = coords;
+                    if (window.userRole && window.userRole !== 'guest') {
+                        const { updateWorkspaceItem } = await import('/static/js/modules/api_workspace.js');
+                        await updateWorkspaceItem(item.id, { polygonCoords: coords });
+                    }
+                }
             };
             window.deleteWorkspacePolygon = (layerId) => {
                 self.state.workspaceItems = self.state.workspaceItems.filter(i => i.layerId !== layerId);
@@ -477,7 +445,6 @@ document.addEventListener('alpine:init', () => {
             window.highlightTableRow = (itemId, flag) => self.highlightTableRow(itemId, flag);
             window.selectTableRow = (itemId) => self.selectTableRow(itemId);
 
-            // Инициализация недостающих полей в state (если ещё не добавлены)
             if (this.state.highlightedItemId === undefined) this.state.highlightedItemId = null;
             if (this.state.selectedWorkspaceItemId === undefined) this.state.selectedWorkspaceItemId = null;
             if (this.state.editingItemId === undefined) this.state.editingItemId = null;
@@ -509,9 +476,7 @@ document.addEventListener('alpine:init', () => {
                 }
             });
 
-            // ============ API методы ============
             this.loadWorkspaceFromServer();
         },
     }));
 });
-

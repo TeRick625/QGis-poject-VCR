@@ -1,9 +1,5 @@
-// static/js/modules/api_workspace.js
+import { addWorkspaceLayer, getMapInstance, workspaceLayers } from '../map.js';
 
-/**
- * Загрузить все объекты workspace текущего пользователя.
- * @returns {Promise<Array>} массив объектов (или пустой массив при ошибке)
- */
 export async function fetchWorkspace() {
     try {
         const response = await fetch('/api/workspace');
@@ -19,11 +15,6 @@ export async function fetchWorkspace() {
     }
 }
 
-/**
- * Создать новый объект workspace на сервере.
- * @param {Object} item — объект в формате workspaceItems
- * @returns {Promise<Object|null>} созданный объект с полями id, layerId и т.д., или null
- */
 export async function saveWorkspaceItem(item) {
     try {
         const payload = {
@@ -34,6 +25,7 @@ export async function saveWorkspaceItem(item) {
             visibleOnMap: item.visibleOnMap,
             layerId: item.layerId,
             associatedKml: item.associatedKml || null,
+            parent_id: item.parent_id || null        // ← теперь передаём parent_id
         };
 
         const response = await fetch('/api/workspace', {
@@ -54,9 +46,6 @@ export async function saveWorkspaceItem(item) {
     }
 }
 
-/**
- * Обновить существующий объект (пока не используется, но скоро понадобится).
- */
 export async function updateWorkspaceItem(id, updates) {
     try {
         const response = await fetch(`/api/workspace/${id}`, {
@@ -72,9 +61,6 @@ export async function updateWorkspaceItem(id, updates) {
     }
 }
 
-/**
- * Удалить объект по id.
- */
 export async function deleteWorkspaceItem(id) {
     try {
         const response = await fetch(`/api/workspace/${id}`, {
@@ -88,11 +74,20 @@ export async function deleteWorkspaceItem(id) {
     }
 }
 
-/**
- * Загрузить рабочую область с сервера и заполнить state.
- * @param {Object} state - реактивный state Alpine
- * @param {Function} nextTick - $nextTick из Alpine-компонента (для обновления карты)
- */
+// Установить связь parent-child
+export async function linkItems(parentId, childId) {
+    if (window.userRole && window.userRole !== 'guest') {
+        await fetch(`/api/workspace/${parentId}/link/${childId}`, { method: 'POST' });
+    }
+}
+
+// Удалить связь parent-child
+export async function unlinkItems(parentId, childId) {
+    if (window.userRole && window.userRole !== 'guest') {
+        await fetch(`/api/workspace/${parentId}/link/${childId}`, { method: 'DELETE' });
+    }
+}
+
 export async function loadWorkspaceFromServer(state, nextTick) {
     if (!window.userRole || window.userRole === 'guest') return;
 
@@ -100,51 +95,59 @@ export async function loadWorkspaceFromServer(state, nextTick) {
         const items = await fetchWorkspace();
         if (items.length === 0) return;
 
-        // Добавляем новые объекты
+        const existingIds = new Set(state.workspaceItems.map(i => i.id));
+
+        // Добавляем / обновляем элементы
         for (const item of items) {
-            const exists = state.workspaceItems.find(i => i.id === item.id);
-            if (!exists) {
-                state.workspaceItems.push({ ...item, kmlData: null, sourceFile: null });
-            }
-        }
-
-        // Переносим данные KML внутрь аэро и удаляем отдельные KML из массива
-        const toRemove = [];
-        for (const item of state.workspaceItems) {
-            if (item.type === 'aero' && item.associatedKml) {
-                const kmlItem = state.workspaceItems.find(i => i.id === item.associatedKml);
-                if (kmlItem) {
-                    item.kmlData = {
-                        id: kmlItem.id,
-                        name: kmlItem.name,
-                        type: kmlItem.type,
-                        format: kmlItem.format,
-                        dateAdded: kmlItem.dateAdded,
-                        polygonCoords: kmlItem.polygonCoords,
-                        visibleOnMap: kmlItem.visibleOnMap,
-                        layerId: kmlItem.layerId,
-                    };
-                    toRemove.push(kmlItem.id);
+            if (existingIds.has(item.id)) {
+                const existing = state.workspaceItems.find(i => i.id === item.id);
+                Object.assign(existing, item, { sourceFile: null });
+                existing.layerId = null;   // заставим пересоздать слой
+            } else {
+                if (typeof item.polygonCoords === 'string' && item.polygonCoords) {
+                    try {
+                        item.polygonCoords = JSON.parse(item.polygonCoords);
+                    } catch (e) {
+                        item.polygonCoords = null;
+                    }
                 }
+                item.layerId = null;
+                item.sourceFile = null;
+                state.workspaceItems.push(item);
             }
         }
-        // Удаляем перенесённые KML
-        state.workspaceItems = state.workspaceItems.filter(i => !toRemove.includes(i.id));
 
-        // Добавляем слои на карту
-        nextTick(() => {
+        // Удаляем лишние локальные элементы, которых нет на сервере
+        const serverIds = new Set(items.map(i => i.id));
+        state.workspaceItems = state.workspaceItems.filter(i => serverIds.has(i.id));
+
+        // Функция добавления слоёв на карту
+        const addLayersToMap = () => {
             state.workspaceItems.forEach(item => {
-                if (item.polygonCoords && !item.layerId && window.addWorkspaceLayer) {
-                    const layerId = window.addWorkspaceLayer(item);
-                    if (layerId) item.layerId = layerId;
-                }
-                // Для дочерних KML тоже можно добавить слой, если нужно
-                if (item.kmlData && item.kmlData.polygonCoords && !item.kmlData.layerId && window.addWorkspaceLayer) {
-                    const layerId = window.addWorkspaceLayer(item.kmlData);
-                    if (layerId) item.kmlData.layerId = layerId;
+                if (item.polygonCoords && !item.layerId) {
+                    const newLayerId = addWorkspaceLayer(item);
+                    if (newLayerId) item.layerId = newLayerId;
                 }
             });
-        });
+
+            const map = getMapInstance();
+            if (!map) return;
+            const allLayers = Object.values(workspaceLayers).filter(l => l.getBounds);
+            if (allLayers.length) {
+                map.fitBounds(L.featureGroup(allLayers).getBounds().pad(0.2));
+            }
+        };
+
+        // Ждём готовность карты
+        if (getMapInstance()) {
+            addLayersToMap();
+        } else {
+            const prev = window.onMapReady;
+            window.onMapReady = () => {
+                if (prev) prev();
+                addLayersToMap();
+            };
+        }
     } catch (err) {
         console.error('Ошибка загрузки workspace:', err);
     }
