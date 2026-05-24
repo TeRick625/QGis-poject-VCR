@@ -86,8 +86,7 @@
             <div class="flex-1 min-h-0 overflow-y-auto space-y-1 pr-1">
                 <template x-for="item in aeroImagesFiltered" :key="item.id">
                     <div class="border border-slate-200 rounded-xl overflow-hidden">
-                        <!-- Основная строка аэро -->
-                        <div @click="item.associatedKml ? toggleSubList(item.id) : selectItem('aero', item)"
+                        <div @click="item.children_ids?.length ? toggleSubList(item.id) : selectItem('aero', item)"
                              class="flex items-center px-3 py-2 cursor-pointer hover:bg-slate-50 transition-colors"
                              :class="{
                                  'bg-blue-200 ring-2 ring-blue-500': state.selectedAeroId === item.id && !state.selectedItem?.isSubItem,
@@ -95,22 +94,24 @@
                              }">
                             <span class="inline-block w-3 h-3 bg-yellow-500 rounded-full mr-2"></span>
                             <span class="flex-1 text-sm font-medium scroll-on-hover" x-text="item.name"></span>
-                            <span x-show="state.selectedItem?.isSubItem && state.selectedItem?.parentPolygon === item.name"
-                                  class="text-xs text-blue-600 mr-1">📍</span>
-                            <span class="text-xs text-slate-400 mr-2" x-show="item.associatedKml">+KML</span>
-                            <span x-show="item.associatedKml" class="text-xl transition-transform"
+                            <span class="text-xs text-slate-400 mr-2" x-show="item.children_ids?.length">+KML</span>
+                            <span x-show="item.children_ids?.length" class="text-xl transition-transform"
                                   :class="state.openAreaId === item.id ? 'rotate-90' : ''">›</span>
                         </div>
 
-                        <!-- Подсписок: KML полигон -->
-                        <div x-show="state.openAreaId === item.id && item.associatedKml"
+                        <!-- Дочерние элементы (KML) -->
+                        <div x-show="state.openAreaId === item.id && item.children_ids?.length"
                              class="border-t border-slate-100 bg-slate-50">
-                            <template x-for="sub in getKmlForAero(item)" :key="sub.id">
-                                <div @click="selectSubItem(sub.id, item)"
-                                     class="flex items-center pl-8 pr-3 py-1.5 cursor-pointer hover:bg-blue-100 transition-colors"
-                                     :class="state.selectedItem?.id === sub.id ? 'bg-blue-200 ring-2 ring-blue-500' : ''">
-                                    <span class="inline-block w-2 h-2 bg-blue-500 rounded-full mr-2"></span>
-                                    <span class="flex-1 text-sm" x-text="sub.name"></span>
+                            <template x-for="childId in item.children_ids" :key="childId">
+                                <div x-data="{ child: state.workspaceItems.find(i => i.id === childId) }">
+                                    <template x-if="child">
+                                        <div @click="selectSubItem(child.id, item)"
+                                             class="flex items-center pl-8 pr-3 py-1.5 cursor-pointer hover:bg-blue-100 transition-colors"
+                                             :class="state.selectedItem?.id === child.id ? 'bg-blue-200 ring-2 ring-blue-500' : ''">
+                                            <span class="inline-block w-2 h-2 bg-blue-500 rounded-full mr-2"></span>
+                                            <span class="flex-1 text-sm" x-text="child.name"></span>
+                                        </div>
+                                    </template>
                                 </div>
                             </template>
                         </div>
