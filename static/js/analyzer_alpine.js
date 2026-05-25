@@ -10,7 +10,8 @@ import {
 import {
     openFindImagesModal, closeFindImagesModal, getSelectedImages,
     toggleImageSelection, removeFromConfirm, showNoImagesFound,
-    nextModalStep, prevModalStep, addSelectedImagesToPolygon, getModalTitleText
+    nextModalStep, prevModalStep, getModalTitleText,
+    setPreviewImage, triggerSearchImages, confirmSelectedImages
 } from '/static/js/modules/tab2_modal_find.js';
 
 import {
@@ -274,12 +275,16 @@ document.addEventListener('alpine:init', () => {
         closeFindImagesModal() { closeFindImagesModal(this.state); },
         get selectedImages() { return getSelectedImages(this.state); },
         toggleImageSelection(id) { toggleImageSelection(id, this.state); },
+        setPreviewImage(url) { setPreviewImage(url, this.state); },
         removeFromConfirm(id) { removeFromConfirm(id, this.state); },
         showNoImagesFound() { showNoImagesFound(this.state); },
-        nextModalStep() { nextModalStep(this.state, this); },
+
+        async nextModalStep() { await nextModalStep(this.state, this); },
         prevModalStep() { prevModalStep(this.state); },
-        addSelectedImagesToPolygon() { addSelectedImagesToPolygon(this.state); },
         get modalTitleText() { return getModalTitleText(this.state); },
+        get modalTitleText() { return getModalTitleText(this.state); },
+
+        addSelectedImagesToPolygon() { addSelectedImagesToPolygon(this.state); },
 
         // ==================== АКТИВАЦИЯ МНОГОДАТНОГО АНАЛИЗА ====================
 
@@ -451,6 +456,17 @@ document.addEventListener('alpine:init', () => {
             if (this.state.coordModalOpen === undefined) this.state.coordModalOpen = false;
             if (this.state.coordInputs === undefined) this.state.coordInputs = [{ value: '' }, { value: '' }, { value: '' }];
             if (this.state.dryingLayerOpacity === undefined) this.state.dryingLayerOpacity = 0.8;
+
+
+            // Инициализация стейта для модального окна поиска
+            if (this.state.foundImages === undefined) this.state.foundImages = [];
+            if (this.state.findModalParams === undefined) {
+                this.state.findModalParams = { cloudMax: 30, dateStart: '2024-01-01', dateEnd: '2024-12-31' };
+            }
+            if (this.state.isSearching === undefined) this.state.isSearching = false;
+            if (this.state.isConfirming === undefined) this.state.isConfirming = false;
+            if (this.state.previewThumbnailUrl === undefined) this.state.previewThumbnailUrl = null;
+
 
             this.$watch('state.currentTab', (v) => this.initCurrentTab());
             this.$nextTick(() => this.initCurrentTab());

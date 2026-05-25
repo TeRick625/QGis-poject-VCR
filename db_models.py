@@ -55,6 +55,8 @@ class WorkspaceItem(db.Model):
     layer_id = db.Column(db.String(100))
     associated_kml_id = db.Column(db.Integer, db.ForeignKey('workspace_items.id'))
     image_thumbnail = db.Column(db.LargeBinary)
+    satellite_space_id = db.Column(db.String(190), nullable=True, unique=True)  # Мировой ID снимка
+    acquisition_date = db.Column(db.DateTime, nullable=True)  # Дата съемки из космоса
 
     children = db.relationship(
         'WorkspaceItem',

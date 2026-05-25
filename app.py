@@ -13,7 +13,9 @@ from rasterio.warp import transform_bounds
 from config import Config
 from db_models import db, User, WorkspaceItem, NeuralNetwork, Analysis
 
+import ee
 from gee_analysis import init_earth_engine
+
 
 # ====================== CONFIG ======================
 app = Flask(__name__)
@@ -124,6 +126,91 @@ def workspace_item_to_dict(item):
     }
 
 
+@app.route("/api/satellite/search", methods=["POST"])
+def search_satellite_images():
+    if "user" not in session:
+        return jsonify({"error": "Not logged in"}), 401
+
+    data = request.get_json()
+    print("\n[BACKEND LOG] Получен запрос на /api/satellite/search")
+    print(f"[BACKEND LOG] Данные запроса: {data}")
+
+    kml_id = data.get("kml_id")
+    date_start = data.get("date_start")
+    date_end = data.get("date_end")
+    max_cloud = float(data.get("max_cloud", 15.0))
+
+    if not init_earth_engine():
+        return jsonify({"error": "Ошибка авторизации в GEE"}), 500
+
+    try:
+        user_id = session["user"]["id"]
+        kml_item = WorkspaceItem.query.filter_by(id=kml_id, user_id=user_id).first()
+
+        if not kml_item:
+            print(f"[BACKEND LOG] ❌ KML с ID {kml_id} не найден в БД для юзера {user_id}")
+            return jsonify({"error": "Полигон не найден"}), 404
+
+        coords = kml_item.polygon_coords
+        print(f"[BACKEND LOG] Исходные координаты из БД (тип {type(coords)}): {coords}")
+
+        if isinstance(coords, str):
+            import json
+            coords = json.loads(coords)
+
+        if isinstance(coords, dict) and "coordinates" in coords:
+            coords = coords["coordinates"]
+        elif isinstance(coords, dict) and "geometry" in coords and "coordinates" in coords["geometry"]:
+            coords = coords["geometry"]["coordinates"]
+
+        print(f"[BACKEND LOG] Спарсенные координаты для полигона GEE: {coords}")
+
+        if len(coords) == 1 and isinstance(coords[0], list) and isinstance(coords[0][0], list):
+            roi = ee.Geometry.Polygon(coords)
+        else:
+            roi = ee.Geometry.Polygon([coords])
+
+        # Проверяем, что GEE видит геометрию нормально
+        print(f"[BACKEND LOG] Центр полигона GEE: {roi.centroid().coordinates().getInfo()}")
+
+        collection = ee.ImageCollection('COPERNICUS/S2_SR_HARMONIZED') \
+            .filterBounds(roi) \
+            .filterDate(date_start, date_end) \
+            .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', max_cloud)) \
+            .sort('CLOUDY_PIXEL_PERCENTAGE')
+
+        image_list = collection.limit(12).getInfo()
+        features = image_list.get('features', [])
+
+        print(f"[BACKEND LOG] GEE нашел снимков: {len(features)}")
+
+        found_images = []
+        for feat in features:
+            props = feat.get('properties', {})
+            space_id = feat.get('id')
+            time_start = props.get('system:time_start')
+            acq_date = datetime.fromtimestamp(time_start / 1000.0).strftime('%Y-%m-%d') if time_start else "Неизвестно"
+            cloud_pct = round(props.get('CLOUDY_PIXEL_PERCENTAGE', 0), 1)
+
+            ee_image = ee.Image(space_id)
+            thumb_url = ee_image.visualize(bands=['B4', 'B3', 'B2'], min=0, max=3000).getThumbURL({
+                'region': roi, 'dimensions': 256, 'format': 'png'
+            })
+
+            found_images.append({
+                "satellite_space_id": space_id,
+                "acquisition_date": acq_date,
+                "cloud_percentage": cloud_pct,
+                "thumbnail_url": thumb_url
+            })
+
+        return jsonify({"success": True, "count": len(found_images), "images": found_images})
+
+    except Exception as e:
+        print(f"[BACKEND LOG] 💥 КРИТИЧЕСКАЯ ОШИБКА НА СЕРВЕРЕ: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/api/workspace", methods=["GET", "POST"])
 def workspace():
     if "user" not in session:
@@ -134,11 +221,38 @@ def workspace():
     user_id = session["user"]["id"]
 
     if request.method == "GET":
-        items = WorkspaceItem.query.filter_by(user_id=user_id).all()
-        return jsonify({
-            "success": True,
-            "data": [workspace_item_to_dict(i) for i in items]
-        })
+        try:
+            # 1. Загружаем ВСЕ элементы пользователя для построения связей
+            all_items = WorkspaceItem.query.filter_by(user_id=user_id).all()
+
+            # 2. Выделяем ID спутников, у которых есть родительский KML
+            # (чтобы убрать их из верхнего уровня таблицы)
+            automatically_downloaded_satellite_ids = {
+                item.id for item in all_items
+                if item.type == "satellite" and item.associated_kml_id is not None
+            }
+
+            # 3. Фильтруем элементы для выдачи в основной список таблицы:
+            filtered_items = []
+            for item in all_items:
+                # Если это автоматически скачанный спутник под KML, пропускаем его (он отобразится внутри KML)
+                if item.id in automatically_downloaded_satellite_ids:
+                    continue
+
+                # Во всех остальных случаях добавляем объект в список:
+                # - Сюда попадут KML/полигоны (type == 'polygon')
+                # - Сюда попадут Аэрофотоснимки (type == 'aero')
+                # - И сюда попадут спутники (type == 'satellite'), загруженные пользователем вручную (associated_kml_id == None)
+                filtered_items.append(item)
+
+            # 4. Возвращаем данные строго в исходном CamelCase формате, ожидаемом фронтендом
+            return jsonify({
+                "success": True,
+                "data": [workspace_item_to_dict(i) for i in filtered_items]
+            })
+
+        except Exception as e:
+            return jsonify({"error": f"Ошибка сервера при получении данных: {str(e)}"}), 500
 
     if request.method == "POST":
         data = request.get_json()
@@ -152,7 +266,7 @@ def workspace():
         visible = data.get("visibleOnMap", True)
         layer_id = data.get("layerId", None)
         associated_kml = data.get("associatedKml", None)
-        parent_id = data.get("parent_id")  # новое поле
+        parent_id = data.get("parent_id")
 
         if item_type not in ("polygon", "satellite", "aero"):
             return jsonify({"error": "Invalid type"}), 400
@@ -168,9 +282,8 @@ def workspace():
             associated_kml_id=associated_kml
         )
         db.session.add(new_item)
-        db.session.flush()  # получаем id
+        db.session.flush()
 
-        # если передан parent_id, устанавливаем связь
         if parent_id:
             parent = WorkspaceItem.query.get(parent_id)
             if parent and parent.user_id == user_id:
@@ -182,6 +295,86 @@ def workspace():
             "success": True,
             "data": workspace_item_to_dict(new_item)
         }), 201
+
+
+@app.route("/api/satellite/confirm", methods=["POST"])
+def confirm_satellite_download():
+    if "user" not in session:
+        return jsonify({"error": "Пользователь не авторизован"}), 401
+
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "Нет данных"}), 400
+
+    kml_id = data.get("kml_id")
+    selected_images = data.get("images", [])  # Ожидаем массив объектов с данными снимков
+
+    if not kml_id or not selected_images:
+        return jsonify({"error": "Не переданы KML или список выбранных снимков"}), 400
+
+    user_id = session["user"]["id"]
+    kml_item = WorkspaceItem.query.filter_by(id=kml_id, user_id=user_id).first()
+
+    if not kml_item:
+        return jsonify({"error": "Родительский KML-полигон не найден"}), 404
+
+    saved_count = 0
+    duplicate_count = 0
+
+    try:
+        for img in selected_images:
+            space_id = img.get("satellite_space_id")
+            acq_date_str = img.get("acquisition_date")
+
+            if not space_id:
+                continue
+
+            # Тот самый составной ключ для защиты от дубликатов в рамках одного KML
+            unique_space_id = f"{space_id}__kml_{kml_id}"
+
+            # Проверяем, не скачивали ли мы уже этот снимок для этого полигона
+            existing = WorkspaceItem.query.filter_by(satellite_space_id=unique_space_id).first()
+            if existing:
+                duplicate_count += 1
+                continue
+
+            # Конвертируем строку даты в объект datetime для MySQL
+            acq_date = None
+            if acq_date_str and acq_date_str != "Неизвестно":
+                try:
+                    acq_date = datetime.strptime(acq_date_str, "%Y-%m-%d")
+                except ValueError:
+                    pass
+
+            # Создаем новую запись.
+            # Обрати внимание: physical source_file пока пустой, так как физически TIF мы не качаем,
+            # мы будем использовать мощности Google (gee_ref) для работы с ним в облаке!
+            new_sat = WorkspaceItem(
+                user_id=user_id,
+                name=f"Снимок Sentinel-2 ({acq_date_str})",
+                type="satellite",
+                format="gee_ref",  # Спец. формат, указывающий алгоритмам, что это виртуальный снимок в GEE
+                date_added=datetime.utcnow(),
+                associated_kml_id=kml_item.id,  # ПРИВЯЗЫВАЕМ К РОДИТЕЛЮ
+                satellite_space_id=unique_space_id,
+                acquisition_date=acq_date,
+                visible_on_map=False  # По умолчанию скрыт на карте, чтобы не перегружать интерфейс
+            )
+
+            db.session.add(new_sat)
+            saved_count += 1
+
+        db.session.commit()
+
+        return jsonify({
+            "success": True,
+            "message": f"Успешно привязано снимков: {saved_count}. Пропущено дубликатов: {duplicate_count}.",
+            "saved_count": saved_count
+        })
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": f"Ошибка при сохранении снимков: {str(e)}"}), 500
 
 
 @app.route("/api/workspace/<int:item_id>", methods=["PUT", "DELETE"])
