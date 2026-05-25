@@ -11,7 +11,9 @@ import rasterio
 from rasterio.warp import transform_bounds
 
 from config import Config
-from db_models import db, User, WorkspaceItem
+from db_models import db, User, WorkspaceItem, NeuralNetwork, Analysis
+
+from gee_analysis import init_earth_engine
 
 # ====================== CONFIG ======================
 app = Flask(__name__)
@@ -30,38 +32,52 @@ Path(app.config["UPLOAD_FOLDER"]).mkdir(exist_ok=True)
 Path(app.config["RESULTS_FOLDER"]).mkdir(exist_ok=True)
 Path("results/masks").mkdir(exist_ok=True)
 
+
 # ====================== ФУНКЦИИ УПРАВЛЕНИЯ БД ======================
 def init_db():
     with app.app_context():
         db.create_all()
         print("✅ Таблицы созданы/обновлены.")
 
-# with app.app_context():
-#     db.create_all()
+
+def seed_neural_networks():
+    with app.app_context():
+        # Проверяем, есть ли уже записи, чтобы не дублировать их при каждом перезапуске
+        if NeuralNetwork.query.count() == 0:
+            models = [
+                NeuralNetwork(
+                    name="Анализ спутниковых снимков (GEE)",
+                    code_name="gee_satellite_index",
+                    short_desc="Анализ вегетационных индексов (NDVI, NDRE) на основе мультивременных снимков Sentinel-2.",
+                    type="satellite",
+                    applicable_to="polygon",
+                    detail="Использует Google Earth Engine для расчета усыхания кроны по разностям индексов за разные периоды.",
+                    is_active=True
+                ),
+                NeuralNetwork(
+                    name="Сегментация крон деревьев (U-Net)",
+                    code_name="pytorch_tree_unet",
+                    short_desc="Поиск и сегментация отдельных крон деревьев по высокодетальным аэрофотоснимкам.",
+                    type="aero",
+                    applicable_to="aero",
+                    detail="Использует сверточную нейросеть U-Net на PyTorch для выделения границ деревьев и оценки их состояния.",
+                    is_active=True
+                )
+            ]
+            db.session.add_all(models)
+            db.session.commit()
+            print("✅ Базовые алгоритмы успешно добавлены в таблицу neural_networks.")
+
+
+# Вызываем функции инициализации (можно раскомментировать на один запуск)
+# init_db()
+# seed_neural_networks()
+
+print("🔄 Проверка подключения к Google Earth Engine...")
+init_earth_engine()
+
 
 # ====================== API ENDPOINTS ======================
-
-@app.route("/api/upload", methods=["POST"])
-def upload_file():
-    if "file" not in request.files:
-        return jsonify({"error": "No file part"}), 400
-
-    file = request.files["file"]
-    if file.filename == "":
-        return jsonify({"error": "No selected file"}), 400
-
-    filename = secure_filename(file.filename)
-    save_path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
-    file.save(save_path)
-
-    return jsonify({
-        "success": True,
-        "name": filename,
-        "path": save_path,
-        "date": filename[:10] if len(filename) >= 10 else "—"
-    })
-
-
 @app.route('/api/geotiff/bounds', methods=['POST'])
 def geotiff_bounds():
     if 'file' not in request.files:
@@ -92,15 +108,6 @@ def geotiff_bounds():
         return jsonify({"error": str(e)}), 400
 
 
-@app.route("/api/polygon", methods=["POST"])
-def save_polygon():
-    data = request.get_json()
-    if not data or "geojson" not in data:
-        return jsonify({"error": "No geojson"}), 400
-    session["current_polygon"] = data["geojson"]
-    return jsonify({"success": True, "message": "Полигон сохранён"})
-
-
 def workspace_item_to_dict(item):
     return {
         "id": item.id,
@@ -113,7 +120,7 @@ def workspace_item_to_dict(item):
         "layerId": item.layer_id,
         "associatedKml": item.associated_kml_id,
         "imageThumbnail": None,
-        "children_ids": [child.id for child in item.children]   # ← добавлено
+        "children_ids": [child.id for child in item.children]  # ← добавлено
     }
 
 
@@ -145,7 +152,7 @@ def workspace():
         visible = data.get("visibleOnMap", True)
         layer_id = data.get("layerId", None)
         associated_kml = data.get("associatedKml", None)
-        parent_id = data.get("parent_id")          # новое поле
+        parent_id = data.get("parent_id")  # новое поле
 
         if item_type not in ("polygon", "satellite", "aero"):
             return jsonify({"error": "Invalid type"}), 400
@@ -239,6 +246,60 @@ def link_items(parent_id, child_id):
         parent.children.remove(child)
         db.session.commit()
     return jsonify({"success": True})
+
+
+@app.route("/api/analysis/launch", methods=["POST"])
+def launch_analysis():
+    if "user_id" not in session:
+        return jsonify({"error": "Пользователь не авторизован"}), 401
+
+    data = request.get_json() or {}
+
+    # 1. Считываем параметры из запроса фронтенда
+    input_item_id = data.get("input_item_id")  # ID полигона или загруженного файла из workspace_items
+    model_code = data.get("model_code")  # 'gee_satellite_index' или 'pytorch_tree_unet'
+    ui_params = data.get("params", {})  # Специфичные настройки из модалки (даты, облачность и т.д.)
+
+    # 2. Проверяем, существует ли исходный объект в рабочей области пользователя
+    input_item = WorkspaceItem.query.filter_by(id=input_item_id, user_id=session["user_id"]).first()
+    if not input_item:
+        return jsonify({"error": "Исходный объект для анализа не найден в вашей рабочей области"}), 404
+
+    # 3. Ищем выбранный алгоритм в базе
+    algo = NeuralNetwork.query.filter_by(code_name=model_code, is_active=True).first()
+    if not algo:
+        return jsonify({"error": f"Алгоритм '{model_code}' не найден или деактивирован"}), 400
+
+    try:
+        # 4. Создаем запись об анализе в состоянии 'pending'
+        # Сюда мы сохраняем все конфигурации, которые ты закладывал в модель Analysis
+        new_analysis = Analysis(
+            user_id=session["user_id"],
+            neural_network_id=algo.id,
+            item_name=f"Анализ: {input_item.name} ({algo.name})",
+            status="pending",
+            has_polygon=(input_item.type == "polygon"),
+            result_view_type=algo.type,
+            snapshot_dates=ui_params.get("dates", []),  # Сохраняем переданные даты, если есть
+            algorithm_data={"ui_configured_parameters": ui_params}  # Сохраняем сырые параметры в JSON на будущее
+        )
+
+        db.session.add(new_analysis)
+        db.session.commit()
+
+        # На следующем этапе здесь появится вызов фонового скрипта!
+        # Решение тяжелых задач будет запускаться тут, не подвешивая Flask.
+
+        return jsonify({
+            "success": True,
+            "message": "Задача на анализ успешно создана и добавлена в очередь",
+            "analysis_id": new_analysis.id,
+            "status": new_analysis.status
+        })
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": f"Ошибка при создании задачи: {str(e)}"}), 500
 
 
 # ====================== ROUTES (HTML) ======================
