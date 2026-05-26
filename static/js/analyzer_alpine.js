@@ -283,9 +283,9 @@ document.addEventListener('alpine:init', () => {
         async nextModalStep() { await nextModalStep(this.state, this); },
         prevModalStep() { prevModalStep(this.state); },
         get modalTitleText() { return getModalTitleText(this.state); },
-        get modalTitleText() { return getModalTitleText(this.state); },
 
-        addSelectedImagesToPolygon() { addSelectedImagesToPolygon(this.state); },
+        // Функция добавления выбранных снимков к полигону теперь не нужна,
+        // так как это делает confirmSelectedImages через API
 
         // ==================== АКТИВАЦИЯ МНОГОДАТНОГО АНАЛИЗА ====================
 

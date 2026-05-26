@@ -30,6 +30,11 @@ export function toggleImageSelection(id, state) {
     if (state.selectedImageIds.includes(id)) {
         state.selectedImageIds = state.selectedImageIds.filter(i => i !== id);
     } else {
+        // Проверка на максимальное количество выбираемых снимков (20)
+        if (state.selectedImageIds.length >= (state.maxSelectableImages || 20)) {
+            alert(`Максимальное количество снимков для выбора: ${state.maxSelectableImages || 20}. Сначала удалите некоторые выбранные снимки.`);
+            return;
+        }
         state.selectedImageIds.push(id);
     }
 }
@@ -85,6 +90,8 @@ export async function triggerSearchImages(state) {
         console.groupEnd();
 
         if (data.success && data.images && data.images.length > 0) {
+            // Ограничиваем количество выбираемых снимков до 20
+            state.maxSelectableImages = 20;
             state.foundImages = data.images.map(img => ({
                 id: img.satellite_space_id,
                 name: `Sentinel-2 (${img.acquisition_date})`,

@@ -182,7 +182,7 @@ export function runAnalysis(state, callbacks) {
                         // Используем выбранные в модальном окне «Найти снимки»
                         snapshotIds = state.selectedImageIds;
                         snapshotDates = state.selectedImageIds.map(id => {
-                            const found = state.fakeFoundImages.find(img => img.id === id);
+                            const found = state.foundImages.find(img => img.id === id);
                             return found ? found.date : '?';
                         });
                     }

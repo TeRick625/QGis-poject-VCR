@@ -1,6 +1,6 @@
 import os
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta
 from io import BytesIO
 
 from flask import Flask, render_template, redirect, url_for, request, session, flash, jsonify
@@ -174,6 +174,7 @@ def search_satellite_images():
     date_start = data.get("date_start")
     date_end = data.get("date_end")
     max_cloud = float(data.get("max_cloud", 15.0))
+    max_images = int(data.get("max_images", 50))  # Лимит снимков (по умолчанию 50)
 
     if not init_earth_engine():
         return jsonify({"error": "Ошибка авторизации в GEE"}), 500
@@ -219,23 +220,79 @@ def search_satellite_images():
         # Проверяем, что GEE видит геометрию нормально
         print(f"[BACKEND LOG] Центр полигона GEE: {roi.centroid().coordinates().getInfo()}")
 
+        # Получаем все снимки за период без ограничения по количеству сначала
         collection = ee.ImageCollection('COPERNICUS/S2_SR_HARMONIZED') \
             .filterBounds(roi) \
             .filterDate(date_start, date_end) \
             .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', max_cloud)) \
-            .sort('CLOUDY_PIXEL_PERCENTAGE')
+            .sort('system:time_start', True)  # Сортируем по времени восходяще
 
-        image_list = collection.limit(12).getInfo()
-        features = image_list.get('features', [])
-
-        print(f"[BACKEND LOG] GEE нашел снимков: {len(features)}")
-
+        # Получаем информацию о всех снимках для анализа дат (берем с большим запасом)
+        all_images_info = collection.limit(1000).getInfo()  # Увеличили лимит для получения большего количества снимков
+        all_features = all_images_info.get('features', [])
+        
+        print(f"[BACKEND LOG] GEE нашел всего снимков: {len(all_features)}")
+        
+        if not all_features:
+            return jsonify({"success": True, "count": 0, "images": []})
+        
+        # Извлекаем даты всех снимков
+        image_dates = []
+        for feat in all_features:
+            props = feat.get('properties', {})
+            time_start = props.get('system:time_start')
+            if time_start:
+                acq_date = datetime.fromtimestamp(time_start / 1000.0)
+                image_dates.append({
+                    'feature': feat,
+                    'date': acq_date,
+                    'time_start': time_start
+                })
+        
+        if not image_dates:
+            return jsonify({"success": True, "count": 0, "images": []})
+        
+        # Определяем минимальную и максимальную дату
+        min_date = min(img['date'] for img in image_dates)
+        max_date = max(img['date'] for img in image_dates)
+        
+        print(f"[BACKEND LOG] Диапазон дат: {min_date.date()} - {max_date.date()}")
+        
+        # Если снимков мало или диапазон маленький, берем все (но не больше max_images)
+        if len(image_dates) <= max_images or (max_date - min_date).days < 7:
+            selected_images = image_dates[:max_images]
+        else:
+            # Разбиваем диапазон на max_images равных промежутков
+            total_days = (max_date - min_date).days
+            step_days = total_days / max_images
+            
+            selected_images = []
+            for i in range(max_images):
+                # Целевая дата для этого промежутка
+                target_date = min_date + timedelta(days=step_days * i)
+                
+                # Находим снимок, наиболее близкий к целевой дате
+                closest_img = None
+                min_diff = timedelta(days=365)  # Максимальная разница
+                
+                for img in image_dates:
+                    diff = abs((img['date'] - target_date).total_seconds())
+                    if diff < min_diff.total_seconds():
+                        min_diff = timedelta(seconds=diff)
+                        closest_img = img
+                
+                if closest_img and closest_img not in selected_images:
+                    selected_images.append(closest_img)
+        
+        print(f"[BACKEND LOG] Отобрано снимков после фильтрации: {len(selected_images)}")
+        
         found_images = []
-        for feat in features:
+        for img_info in selected_images:
+            feat = img_info['feature']
             props = feat.get('properties', {})
             space_id = feat.get('id')
-            time_start = props.get('system:time_start')
-            acq_date = datetime.fromtimestamp(time_start / 1000.0).strftime('%Y-%m-%d') if time_start else "Неизвестно"
+            time_start = img_info['time_start']
+            acq_date = datetime.fromtimestamp(time_start / 1000.0).strftime('%Y-%m-%d')
             cloud_pct = round(props.get('CLOUDY_PIXEL_PERCENTAGE', 0), 1)
 
             ee_image = ee.Image(space_id)
