@@ -136,9 +136,13 @@ export async function confirmSelectedImages(state, callbacks) {
         if (data.success) {
             console.log(data.message);
             // Важнейший шаг: запрашиваем обновленный список файлов с сервера!
-            // Наш KML спроецируется с новыми снимками внутри children_ids
-            if (callbacks.loadWorkspaceFromServer) {
-                callbacks.loadWorkspaceFromServer();
+            // Вызываем НОВЫЙ метод loadWorkspaceFromServer из analyzer_alpine.js,
+            // который автоматически раскроет полигоны со снимками
+            if (callbacks && callbacks.loadWorkspaceFromServer) {
+                await callbacks.loadWorkspaceFromServer();
+            } else if (callbacks && typeof callbacks.loadWorkspaceFromServer === 'function') {
+                // Для совместимости, если передан просто объект с функцией
+                await callbacks.loadWorkspaceFromServer();
             }
             closeFindImagesModal(state);
         } else {

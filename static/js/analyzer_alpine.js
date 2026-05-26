@@ -327,6 +327,25 @@ document.addEventListener('alpine:init', () => {
         prevModalStep() { prevModalStep(this.state); },
         get modalTitleText() { return getModalTitleText(this.state); },
 
+        // Метод для загрузки workspace с сервера с автоматическим раскрытием полигонов со снимками
+        async loadWorkspaceFromServer() {
+            await loadWorkspaceFromServer(this.state, this.$nextTick);
+            
+            // После загрузки проверяем полигоны и автоматически раскрываем те, у которых есть subItems
+            this.$nextTick(() => {
+                if (!this.state.expandedPolygons) {
+                    this.state.expandedPolygons = {};
+                }
+                
+                for (const item of this.state.workspaceItems) {
+                    if (item.type === 'polygon' && item.subItems && item.subItems.length > 0) {
+                        // Автоматически раскрываем полигон, если у него есть снимки
+                        this.state.expandedPolygons[item.id] = true;
+                    }
+                }
+            });
+        },
+
         // Функция добавления выбранных снимков к полигону теперь не нужна,
         // так как это делает confirmSelectedImages через API
 
