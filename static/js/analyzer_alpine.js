@@ -161,7 +161,6 @@ document.addEventListener('alpine:init', () => {
             const result = [];
             const visited = new Set();
 
-
             // Собираем все id, которые являются чьими-то детьми
             const allChildIds = new Set();
             for (const item of this.state.workspaceItems) {
@@ -174,6 +173,8 @@ document.addEventListener('alpine:init', () => {
                 if (visited.has(item.id)) return;
                 visited.add(item.id);
                 result.push(item);
+
+                // Обрабатываем детей из children_ids (старая логика для aero+kml)
                 const childIds = item.children_ids || [];
                 for (const childId of childIds) {
                     const child = this.state.workspaceItems.find(i => i.id === childId);
@@ -186,6 +187,20 @@ document.addEventListener('alpine:init', () => {
                         });
                     }
                 }
+
+                // НОВАЯ ЛОГИКА: Если это полигон с подэлементами (спутниковые снимки),
+                // добавляем их как вложенные элементы
+                if (item.type === 'polygon' && item.subItems && item.subItems.length > 0) {
+                    for (const subItem of item.subItems) {
+                        result.push({
+                            ...subItem,
+                            isChild: true,
+                            parentId: item.id,
+                            depth: depth + 1,
+                            isSatelliteImage: true
+                        });
+                    }
+                }
             };
 
             // Добавляем только те элементы, которые НЕ являются чьими-то детьми
@@ -195,6 +210,34 @@ document.addEventListener('alpine:init', () => {
                 }
             }
             return result;
+        },
+
+        // Новые методы для управления аккордеонами полигонов
+        togglePolygonAccordion(polygonId) {
+            if (!this.state.expandedPolygons) {
+                this.state.expandedPolygons = {};
+            }
+            this.state.expandedPolygons[polygonId] = !this.state.expandedPolygons[polygonId];
+        },
+
+        isPolygonExpanded(polygonId) {
+            if (!this.state.expandedPolygons) {
+                this.state.expandedPolygons = {};
+            }
+            return !!this.state.expandedPolygons[polygonId];
+        },
+
+        hasSatelliteImages(item) {
+            return item.type === 'polygon' && item.subItems && item.subItems.length > 0;
+        },
+
+        getSatelliteImagesCount(item) {
+            if (!this.hasSatelliteImages(item)) return 0;
+            return item.subItems.length;
+        },
+
+        getSatelliteImagesLimit() {
+            return this.state.maxSelectableImages || 20;
         },
 
         toggleFilter(type) {
@@ -247,6 +290,7 @@ document.addEventListener('alpine:init', () => {
         },
 
         attachKmlToAeroEntry(index) {
+            window.__uploadModalState = this.state;
             attachKmlToAeroEntry(index);
         },
 
@@ -282,10 +326,26 @@ document.addEventListener('alpine:init', () => {
         async nextModalStep() { await nextModalStep(this.state, this); },
         prevModalStep() { prevModalStep(this.state); },
         get modalTitleText() { return getModalTitleText(this.state); },
-        get modalTitleText() { return getModalTitleText(this.state); },
 
-        addSelectedImagesToPolygon() { addSelectedImagesToPolygon(this.state); },
 
+        // Метод для загрузки workspace с сервера с автоматическим раскрытием полигонов со снимками
+        async loadWorkspaceFromServer() {
+            await loadWorkspaceFromServer(this.state, this.$nextTick);
+
+            // После загрузки проверяем полигоны и автоматически раскрываем те, у которых есть subItems
+            this.$nextTick(() => {
+                if (!this.state.expandedPolygons) {
+                    this.state.expandedPolygons = {};
+                }
+
+                for (const item of this.state.workspaceItems) {
+                    if (item.type === 'polygon' && item.subItems && item.subItems.length > 0) {
+                        // Автоматически раскрываем полигон, если у него есть снимки
+                        this.state.expandedPolygons[item.id] = true;
+                    }
+                }
+            });
+        },
         // ==================== АКТИВАЦИЯ МНОГОДАТНОГО АНАЛИЗА ====================
 
         openActivationModal() {
@@ -375,7 +435,8 @@ document.addEventListener('alpine:init', () => {
         get areasFiltered() {
             const childIdsSet = new Set();
             for (const item of this.state.workspaceItems) {
-                if (item.children_ids) {
+               if (item.children_ids && item.type === 'aero') {
+                    // Собираем только детей аэрофотоснимков (KML), чтобы исключить их из списка полигонов
                     item.children_ids.forEach(id => childIdsSet.add(id));
                 }
             }

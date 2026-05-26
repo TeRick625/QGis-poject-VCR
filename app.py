@@ -1,6 +1,6 @@
 import os
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta
 from io import BytesIO
 
 from flask import Flask, render_template, redirect, url_for, request, session, flash, jsonify
@@ -11,7 +11,7 @@ import rasterio
 from rasterio.warp import transform_bounds
 
 from config import Config
-from db_models import db, User, WorkspaceItem, NeuralNetwork, Analysis
+from db_models import db, User, WorkspaceItem, NeuralNetwork, Analysis, WorkspaceSubItem
 
 import ee
 from gee_analysis import init_earth_engine
@@ -25,6 +25,9 @@ app.secret_key = "bio_gis_super_secret_key_change_in_production"
 app.config["UPLOAD_FOLDER"] = "uploads"
 app.config["RESULTS_FOLDER"] = "results"
 app.config.from_object(Config)
+
+# Ограничения на размер загружаемых файлов (500 MB)
+app.config['MAX_CONTENT_LENGTH'] = 500 * 1024 * 1024  # 500 MB
 
 # Инициализация базы данных
 db.init_app(app)
@@ -80,6 +83,11 @@ init_earth_engine()
 
 
 # ====================== API ENDPOINTS ======================
+
+@app.errorhandler(413)
+def request_entity_too_large(error):
+    return jsonify({"error": "Файл слишком большой. Максимальный размер: 500 MB"}), 413
+
 @app.route('/api/geotiff/bounds', methods=['POST'])
 def geotiff_bounds():
     if 'file' not in request.files:
@@ -111,18 +119,45 @@ def geotiff_bounds():
 
 
 def workspace_item_to_dict(item):
+    # Извлекаем координаты, конвертируем из JSON если нужно
+    coords = item.polygon_coords
+    if isinstance(coords, str):
+        try:
+            import json
+            coords = json.loads(coords)
+        except:
+            coords = None
+
+    # Для полигонов с дочерними снимками формируем subItems для фронтенда
+    sub_items = []
+    if item.type == 'polygon' and item.children:
+        # Сортируем дочерние снимки по дате acquisition_date
+        sorted_children = sorted(item.children, key=lambda x: x.acquisition_date or datetime.min)
+        for idx, child in enumerate(sorted_children, start=1):
+            sub_items.append({
+                "id": child.id,
+                "name": child.name,
+                "type": child.type,
+                "format": child.format,
+                "date": child.acquisition_date.strftime("%Y-%m-%d") if child.acquisition_date else "Неизвестно",
+                "cloud": getattr(child, 'cloud_cover', None),
+                "satellite_space_id": child.satellite_space_id,
+                "thumbnail_url": None  # Можно добавить URL превью если есть
+            })
+
     return {
         "id": item.id,
         "name": item.name,
         "type": item.type,
         "format": item.format,
         "dateAdded": item.date_added.isoformat() if item.date_added else None,
-        "polygonCoords": item.polygon_coords,
+        "polygonCoords": coords,
         "visibleOnMap": item.visible_on_map,
         "layerId": item.layer_id,
         "associatedKml": item.associated_kml_id,
         "imageThumbnail": None,
-        "children_ids": [child.id for child in item.children]  # ← добавлено
+        "children_ids": [child.id for child in item.children],
+        "subItems": sub_items if sub_items else None
     }
 
 
@@ -139,6 +174,7 @@ def search_satellite_images():
     date_start = data.get("date_start")
     date_end = data.get("date_end")
     max_cloud = float(data.get("max_cloud", 15.0))
+    max_images = int(data.get("max_images", 50))  # Лимит снимков (по умолчанию 50)
 
     if not init_earth_engine():
         return jsonify({"error": "Ошибка авторизации в GEE"}), 500
@@ -154,10 +190,12 @@ def search_satellite_images():
         coords = kml_item.polygon_coords
         print(f"[BACKEND LOG] Исходные координаты из БД (тип {type(coords)}): {coords}")
 
+        # Конвертируем строку в JSON если нужно
         if isinstance(coords, str):
             import json
             coords = json.loads(coords)
 
+        # Извлекаем координаты из различных форматов GeoJSON
         if isinstance(coords, dict) and "coordinates" in coords:
             coords = coords["coordinates"]
         elif isinstance(coords, dict) and "geometry" in coords and "coordinates" in coords["geometry"]:
@@ -165,31 +203,96 @@ def search_satellite_images():
 
         print(f"[BACKEND LOG] Спарсенные координаты для полигона GEE: {coords}")
 
+        # Нормализуем формат координат для GEE
+        # GEE ожидает [lng, lat] порядок, а Leaflet хранит [lat, lng]
         if len(coords) == 1 and isinstance(coords[0], list) and isinstance(coords[0][0], list):
+            # Это уже Polygon с outer ring, проверяем порядок координат
+            first_coord = coords[0][0]
+            if len(first_coord) >= 2 and first_coord[0] > 90:  # Скорее всего [lat, lng]
+                # Конвертируем в [lng, lat]
+                coords = [[[c[1], c[0]] for c in ring] for ring in coords]
             roi = ee.Geometry.Polygon(coords)
         else:
-            roi = ee.Geometry.Polygon([coords])
+            # Это простой массив [lat, lng] точек, конвертируем в [[lng, lat], ...]
+            normalized = [[c[1], c[0]] for c in coords]
+            roi = ee.Geometry.Polygon([normalized])
 
         # Проверяем, что GEE видит геометрию нормально
         print(f"[BACKEND LOG] Центр полигона GEE: {roi.centroid().coordinates().getInfo()}")
 
+        # Получаем все снимки за период без ограничения по количеству сначала
         collection = ee.ImageCollection('COPERNICUS/S2_SR_HARMONIZED') \
             .filterBounds(roi) \
             .filterDate(date_start, date_end) \
             .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', max_cloud)) \
-            .sort('CLOUDY_PIXEL_PERCENTAGE')
+            .sort('system:time_start', True)  # Сортируем по времени восходяще
 
-        image_list = collection.limit(12).getInfo()
-        features = image_list.get('features', [])
+        # Получаем информацию о всех снимках для анализа дат (берем с большим запасом)
+        all_images_info = collection.limit(1000).getInfo()  # Увеличили лимит для получения большего количества снимков
+        all_features = all_images_info.get('features', [])
 
-        print(f"[BACKEND LOG] GEE нашел снимков: {len(features)}")
+        print(f"[BACKEND LOG] GEE нашел всего снимков: {len(all_features)}")
+
+        if not all_features:
+            return jsonify({"success": True, "count": 0, "images": []})
+
+        # Извлекаем даты всех снимков
+        image_dates = []
+        for feat in all_features:
+            props = feat.get('properties', {})
+            time_start = props.get('system:time_start')
+            if time_start:
+                acq_date = datetime.fromtimestamp(time_start / 1000.0)
+                image_dates.append({
+                    'feature': feat,
+                    'date': acq_date,
+                    'time_start': time_start
+                })
+
+        if not image_dates:
+            return jsonify({"success": True, "count": 0, "images": []})
+
+        # Определяем минимальную и максимальную дату
+        min_date = min(img['date'] for img in image_dates)
+        max_date = max(img['date'] for img in image_dates)
+
+        print(f"[BACKEND LOG] Диапазон дат: {min_date.date()} - {max_date.date()}")
+
+        # Если снимков мало или диапазон маленький, берем все (но не больше max_images)
+        if len(image_dates) <= max_images or (max_date - min_date).days < 7:
+            selected_images = image_dates[:max_images]
+        else:
+            # Разбиваем диапазон на max_images равных промежутков
+            total_days = (max_date - min_date).days
+            step_days = total_days / max_images
+
+            selected_images = []
+            for i in range(max_images):
+                # Целевая дата для этого промежутка
+                target_date = min_date + timedelta(days=step_days * i)
+
+                # Находим снимок, наиболее близкий к целевой дате
+                closest_img = None
+                min_diff = timedelta(days=365)  # Максимальная разница
+
+                for img in image_dates:
+                    diff = abs((img['date'] - target_date).total_seconds())
+                    if diff < min_diff.total_seconds():
+                        min_diff = timedelta(seconds=diff)
+                        closest_img = img
+
+                if closest_img and closest_img not in selected_images:
+                    selected_images.append(closest_img)
+
+        print(f"[BACKEND LOG] Отобрано снимков после фильтрации: {len(selected_images)}")
 
         found_images = []
-        for feat in features:
+        for img_info in selected_images:
+            feat = img_info['feature']
             props = feat.get('properties', {})
             space_id = feat.get('id')
-            time_start = props.get('system:time_start')
-            acq_date = datetime.fromtimestamp(time_start / 1000.0).strftime('%Y-%m-%d') if time_start else "Неизвестно"
+            time_start = img_info['time_start']
+            acq_date = datetime.fromtimestamp(time_start / 1000.0).strftime('%Y-%m-%d')
             cloud_pct = round(props.get('CLOUDY_PIXEL_PERCENTAGE', 0), 1)
 
             ee_image = ee.Image(space_id)
@@ -208,6 +311,8 @@ def search_satellite_images():
 
     except Exception as e:
         print(f"[BACKEND LOG] 💥 КРИТИЧЕСКАЯ ОШИБКА НА СЕРВЕРЕ: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
 
@@ -252,6 +357,8 @@ def workspace():
             })
 
         except Exception as e:
+            import traceback
+            traceback.print_exc()
             return jsonify({"error": f"Ошибка сервера при получении данных: {str(e)}"}), 500
 
     if request.method == "POST":
@@ -271,6 +378,40 @@ def workspace():
         if item_type not in ("polygon", "satellite", "aero"):
             return jsonify({"error": "Invalid type"}), 400
 
+        # Валидация и нормализация координат
+        if coords is not None:
+            # Если координаты пришли в виде строки, парсим JSON
+            if isinstance(coords, str):
+                try:
+                    import json
+                    coords = json.loads(coords)
+                except:
+                    coords = None
+
+            # Проверяем формат координат и нормализуем для Leaflet [lat, lng]
+            if coords is not None:
+                if isinstance(coords, dict):
+                    # GeoJSON формат - извлекаем coordinates
+                    if "coordinates" in coords:
+                        coords = coords["coordinates"]
+                    elif "geometry" in coords and "coordinates" in coords["geometry"]:
+                        coords = coords["geometry"]["coordinates"]
+
+                # Конвертируем из [lng, lat] в [lat, lng] если нужно (для GEE совместимости)
+                if isinstance(coords, list) and len(coords) > 0:
+                    # Проверяем первый элемент
+                    first = coords[0] if not isinstance(coords[0], list) else coords[0][0] if isinstance(coords[0], list) and len(coords[0]) > 0 else None
+                    if first and isinstance(first, list) and len(first) >= 2:
+                        # Если первая координата > 90, скорее всего это [lng, lat] -> конвертируем
+                        if abs(first[0]) > 90 and abs(first[1]) <= 90:
+                            # Конвертируем весь массив
+                            if isinstance(coords[0], list) and isinstance(coords[0][0], list):
+                                # Polygon с ring: [[[lng,lat],...]] -> [[[lat,lng],...]]
+                                coords = [[[c[1], c[0]] for c in ring] for ring in coords]
+                            elif isinstance(coords[0], list):
+                                # Simple array: [[lng,lat],...] -> [[lat,lng],...]
+                                coords = [[c[1], c[0]] for c in coords]
+
         new_item = WorkspaceItem(
             user_id=user_id,
             name=name,
@@ -285,7 +426,7 @@ def workspace():
         db.session.flush()
 
         if parent_id:
-            parent = WorkspaceItem.query.get(parent_id)
+            parent = db.session.get(WorkspaceItem, parent_id)
             if parent and parent.user_id == user_id:
                 parent.children.append(new_item)
 
@@ -322,7 +463,10 @@ def confirm_satellite_download():
     duplicate_count = 0
 
     try:
-        for img in selected_images:
+        # Сортируем снимки по дате для правильного порядкового номера
+        sorted_images = sorted(selected_images, key=lambda x: x.get("acquisition_date", ""))
+
+        for idx, img in enumerate(sorted_images, start=1):
             space_id = img.get("satellite_space_id")
             acq_date_str = img.get("acquisition_date")
 
@@ -346,12 +490,17 @@ def confirm_satellite_download():
                 except ValueError:
                     pass
 
+            # Формируем имя в формате: Полигон_Sentinel_NN
+            # Очищаем имя полигона от спецсимволов и пробелов
+            safe_polygon_name = "".join(c for c in kml_item.name if c.isalnum() or c in " _-").strip().replace(" ", "_")
+            satellite_name = f"{safe_polygon_name}_Sentinel_{idx:02d}"
+
             # Создаем новую запись.
             # Обрати внимание: physical source_file пока пустой, так как физически TIF мы не качаем,
             # мы будем использовать мощности Google (gee_ref) для работы с ним в облаке!
             new_sat = WorkspaceItem(
                 user_id=user_id,
-                name=f"Снимок Sentinel-2 ({acq_date_str})",
+                name=satellite_name,
                 type="satellite",
                 format="gee_ref",  # Спец. формат, указывающий алгоритмам, что это виртуальный снимок в GEE
                 date_added=datetime.utcnow(),
@@ -423,8 +572,8 @@ def link_items(parent_id, child_id):
     if "user" not in session or session["user"]["role"] == "guest":
         return jsonify({"error": "Not allowed"}), 403
 
-    parent = WorkspaceItem.query.get(parent_id)
-    child = WorkspaceItem.query.get(child_id)
+    parent = db.session.get(WorkspaceItem, parent_id)
+    child = db.session.get(WorkspaceItem, child_id)
     if not parent or not child:
         return jsonify({"error": "Item not found"}), 404
 
