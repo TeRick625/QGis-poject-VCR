@@ -1,6 +1,17 @@
 // static/js/modules/tab2_selection.js
 
 export function selectItem(type, item, state) {
+    // Если кликнули на полигон, который уже раскрыт или имеет снимки - не сбрасываем выделение
+    const isPolygonWithImages = item.type === 'polygon' && item.subItems && item.subItems.length > 0;
+    
+    // Проверяем, не кликнули ли мы по уже выбранному элементу
+    const isAlreadySelected = state.selectedAreaId === item.id && type === 'area';
+    
+    if (isAlreadySelected && isPolygonWithImages) {
+        // Если кликнули повторно по раскрытому полигону - ничего не делаем
+        return;
+    }
+    
     state.selectedItem = null;
     state.selectedNN = null;
     state.selectedAreaId = null;

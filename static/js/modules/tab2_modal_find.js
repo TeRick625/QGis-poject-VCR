@@ -1,7 +1,9 @@
 // static/js/modules/tab2_modal_find.js
 
 export function openFindImagesModal(state) {
-    if (!state.selectedItem || state.selectedItem.type !== 'area') return;
+    // Разрешаем открывать модальное окно для полигонов типа 'area' и 'polygon'
+    if (!state.selectedItem || (state.selectedItem.type !== 'area' && state.selectedItem.type !== 'polygon')) return;
+    if (state.selectedItem.isSubItem) return;
 
     state.currentModalStep = 1;
     state.selectedImageIds = [];

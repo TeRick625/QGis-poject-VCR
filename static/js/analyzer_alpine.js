@@ -417,9 +417,11 @@ document.addEventListener('alpine:init', () => {
         },
 
         get areasFiltered() {
+            // Показываем все полигоны, которые НЕ являются дочерними элементами аэрофотоснимков
             const childIdsSet = new Set();
             for (const item of this.state.workspaceItems) {
-                if (item.children_ids) {
+                if (item.children_ids && item.type === 'aero') {
+                    // Собираем только детей аэрофотоснимков (KML), чтобы исключить их из списка полигонов
                     item.children_ids.forEach(id => childIdsSet.add(id));
                 }
             }
