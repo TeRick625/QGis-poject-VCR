@@ -54,18 +54,19 @@ export function toggleSubList(itemId, state) {
     }
 }
 
-export function selectSubItem(subId, parentItem, state) {
+export function selectSubItem(sub, parentItem, state) {
     state.selectedItem = null;
     state.selectedNN = null;
     state.selectedAreaId = null;
     state.selectedSatelliteId = null;
     state.selectedAeroId = null;
 
-    const sub = state.workspaceItems.find(i => i.id === subId);
-    if (!sub) return;
-
-    if (parentItem.type === 'polygon') {
-        // Выбор спутникового снимка из подсписка полигона
+    // sub может быть объектом снимка или ID (для обратной совместимости)
+    const subId = typeof sub === 'object' ? sub.id : sub;
+    const subObj = state.workspaceItems.find(i => i.id === subId);
+    
+    if (!subObj && typeof sub === 'object') {
+        // Если sub это объект снимка из subItems полигона
         state.selectedItem = {
             type: 'satellite_from_area',
             id: sub.id,
@@ -73,11 +74,25 @@ export function selectSubItem(subId, parentItem, state) {
             isSubItem: true,
             parentPolygon: parentItem.name
         };
+        return;
+    }
+    
+    if (!subObj) return;
+
+    if (parentItem.type === 'polygon') {
+        // Выбор спутникового снимка из подсписка полигона
+        state.selectedItem = {
+            type: 'satellite_from_area',
+            id: subObj.id,
+            name: subObj.name,
+            isSubItem: true,
+            parentPolygon: parentItem.name
+        };
     } else {
         // Выбор KML из подсписка аэро
         state.selectedItem = {
             type: 'kml',                    // <-- меняем на 'kml'
-            id: sub.id,
+            id: subObj.id,
             name: parentItem.name,
             isSubItem: true,
             parentPolygon: parentItem.name

@@ -65,4 +65,7 @@ export const state = {
     selectedAreaId: null,
     selectedSatelliteId: null,
     selectedAeroId: null,
+    
+    // Состояние аккордеонов для полигонов со спутниковыми снимками
+    expandedPolygons: {},
 };

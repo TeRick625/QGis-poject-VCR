@@ -161,7 +161,6 @@ document.addEventListener('alpine:init', () => {
             const result = [];
             const visited = new Set();
 
-
             // Собираем все id, которые являются чьими-то детьми
             const allChildIds = new Set();
             for (const item of this.state.workspaceItems) {
@@ -174,6 +173,8 @@ document.addEventListener('alpine:init', () => {
                 if (visited.has(item.id)) return;
                 visited.add(item.id);
                 result.push(item);
+                
+                // Обрабатываем детей из children_ids (старая логика для aero+kml)
                 const childIds = item.children_ids || [];
                 for (const childId of childIds) {
                     const child = this.state.workspaceItems.find(i => i.id === childId);
@@ -186,6 +187,20 @@ document.addEventListener('alpine:init', () => {
                         });
                     }
                 }
+                
+                // НОВАЯ ЛОГИКА: Если это полигон с подэлементами (спутниковые снимки),
+                // добавляем их как вложенные элементы
+                if (item.type === 'polygon' && item.subItems && item.subItems.length > 0) {
+                    for (const subItem of item.subItems) {
+                        result.push({
+                            ...subItem,
+                            isChild: true,
+                            parentId: item.id,
+                            depth: depth + 1,
+                            isSatelliteImage: true
+                        });
+                    }
+                }
             };
 
             // Добавляем только те элементы, которые НЕ являются чьими-то детьми
@@ -195,6 +210,34 @@ document.addEventListener('alpine:init', () => {
                 }
             }
             return result;
+        },
+
+        // Новые методы для управления аккордеонами полигонов
+        togglePolygonAccordion(polygonId) {
+            if (!this.state.expandedPolygons) {
+                this.state.expandedPolygons = {};
+            }
+            this.state.expandedPolygons[polygonId] = !this.state.expandedPolygons[polygonId];
+        },
+
+        isPolygonExpanded(polygonId) {
+            if (!this.state.expandedPolygons) {
+                this.state.expandedPolygons = {};
+            }
+            return !!this.state.expandedPolygons[polygonId];
+        },
+
+        hasSatelliteImages(item) {
+            return item.type === 'polygon' && item.subItems && item.subItems.length > 0;
+        },
+
+        getSatelliteImagesCount(item) {
+            if (!this.hasSatelliteImages(item)) return 0;
+            return item.subItems.length;
+        },
+
+        getSatelliteImagesLimit() {
+            return this.state.maxSelectableImages || 20;
         },
 
         toggleFilter(type) {
