@@ -16,17 +16,31 @@ export async function parseKmlCoordinates(file) {
     const text = await file.text();
     const parser = new DOMParser();
     const kml = parser.parseFromString(text, 'application/xml');
+    
+    // Проверяем на наличие ошибок парсинга XML
+    const parseError = kml.getElementsByTagName('parsererror');
+    if (parseError.length > 0) {
+        console.error('Ошибка парсинга KML:', parseError[0].textContent);
+        return null;
+    }
+    
     const coordNodes = kml.getElementsByTagName('coordinates');
     if (coordNodes.length === 0) {
         console.warn('KML не содержит тегов <coordinates>');
         return null;
     }
+    
     const coordText = coordNodes[0].textContent.trim();
     const points = coordText.split(/\s+/).filter(p => p.includes(','));
+    
+    // KML использует порядок [lng, lat, alt], конвертируем в [lat, lng] для Leaflet
     const coords = points.map(p => {
-        const [lng, lat] = p.split(',').map(Number);
-        return [lat, lng];
-    });
+        const parts = p.split(',').map(Number);
+        const lng = parts[0];
+        const lat = parts[1];
+        return [lat, lng];  // [lat, lng] для Leaflet
+    }).filter(c => !isNaN(c[0]) && !isNaN(c[1]));  // Фильтруем некорректные точки
+    
     return coords.length >= 3 ? coords : null;
 }
 
@@ -59,6 +73,12 @@ export async function addWorkspaceItem(state, file) {
     else if (type === 'satellite' && format === 'geotiff')
         polygonCoords = await extractSatelliteBounds(file);
 
+    // Проверяем, что координаты корректны перед добавлением
+    if (polygonCoords && (!Array.isArray(polygonCoords) || polygonCoords.length < 3)) {
+        console.error('Некорректные координаты для файла:', file.name, polygonCoords);
+        return null;
+    }
+
     const newItem = createWorkspaceItemObject(file, type, format, polygonCoords);
     state.workspaceItems.push(newItem);
 
@@ -70,10 +90,26 @@ export async function addWorkspaceItem(state, file) {
 }
 
 async function extractSatelliteBounds(file) {
+    const MAX_FILE_SIZE = 500 * 1024 * 1024; // 500 MB
+    
+    // Проверяем размер файла перед отправкой на сервер
+    if (file.size > MAX_FILE_SIZE) {
+        alert(`Файл "${file.name}" превышает максимальный размер в 500 MB и не будет обработан.`);
+        console.warn(`Файл ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB) превышен лимит 500 MB`);
+        return null;
+    }
+    
     const formData = new FormData();
     formData.append('file', file);
     try {
         const response = await fetch('/api/geotiff/bounds', { method: 'POST', body: formData });
+        
+        // Обрабатываем ошибку 413 Payload Too Large
+        if (response.status === 413) {
+            alert(`Файл "${file.name}" слишком большой для обработки. Максимальный размер: 500 MB.`);
+            return null;
+        }
+        
         const data = await response.json();
         if (data.success) return data.coordinates;
         console.error('Ошибка сервера при чтении GeoTIFF:', data.error);

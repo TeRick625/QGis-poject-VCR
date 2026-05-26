@@ -113,15 +113,55 @@ export function addWorkspaceLayer(item) {
 
     let polygon;
     if (item.type === 'satellite') {
-        polygon = L.rectangle(item.polygonCoords, {
-            color: '#22c55e',
-            weight: 2,
-            fillOpacity: 0.1,
-            interactive: false
-        });
-        polygon.addTo(mapInstance);
+        // Для спутников рисуем прямоугольник по границам
+        // Координаты должны быть в формате [[bottom, left], [top, left], [top, right], [bottom, right]]
+        // Leaflet ожидает [lat, lng] порядок для L.rectangle
+        const bounds = item.polygonCoords;
+        if (Array.isArray(bounds) && bounds.length === 4) {
+            // Проверяем формат координат - если это GeoJSON bbox [left, bottom, right, top]
+            if (bounds.every(c => Array.isArray(c) && c.length === 2)) {
+                // Проверяем порядок координат: если первая координата > 90, это [lng, lat] -> конвертируем
+                const firstPoint = bounds[0];
+                let normalizedBounds = bounds;
+                if (Math.abs(firstPoint[0]) > 90 && Math.abs(firstPoint[1]) <= 90) {
+                    // Конвертируем из [lng, lat] в [lat, lng]
+                    normalizedBounds = bounds.map(c => [c[1], c[0]]);
+                }
+                polygon = L.rectangle(normalizedBounds, {
+                    color: '#22c55e',
+                    weight: 2,
+                    fillOpacity: 0.1,
+                    interactive: false
+                });
+                polygon.addTo(mapInstance);
+            } else {
+                console.warn('Некорректный формат координат для спутника:', bounds);
+                return null;
+            }
+        } else {
+            console.warn('Координаты спутника не являются массивом из 4 точек:', bounds);
+            return null;
+        }
     } else if (item.type === 'polygon') {
-        polygon = L.polygon(item.polygonCoords, {
+        // Для полигонов проверяем формат координат
+        let coords = item.polygonCoords;
+        
+        // Нормализуем координаты для L.polygon
+        // L.polygon ожидает [[lat, lng], [lat, lng], ...] или [[[lat, lng], ...]] для полигонов с дырками
+        if (Array.isArray(coords) && coords.length > 0) {
+            // Проверяем, это простой массив точек или массив с ring
+            const firstPoint = Array.isArray(coords[0]) ? coords[0] : null;
+            if (firstPoint && firstPoint.length >= 2) {
+                // Это уже массив точек в формате [lat, lng] или [lng, lat]
+                // Проверяем порядок: если первая координата > 90, это скорее всего [lng, lat]
+                if (Math.abs(firstPoint[0]) > 90 && Math.abs(firstPoint[1]) <= 90) {
+                    // Конвертируем из [lng, lat] в [lat, lng]
+                    coords = coords.map(c => [c[1], c[0]]);
+                }
+            }
+        }
+        
+        polygon = L.polygon(coords, {
             color: '#3b82f6',
             weight: 3,
             fillOpacity: 0.2,

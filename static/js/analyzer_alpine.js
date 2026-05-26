@@ -247,6 +247,7 @@ document.addEventListener('alpine:init', () => {
         },
 
         attachKmlToAeroEntry(index) {
+            window.__uploadModalState = this.state;
             attachKmlToAeroEntry(index);
         },
 

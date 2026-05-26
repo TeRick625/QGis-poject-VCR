@@ -26,6 +26,9 @@ app.config["UPLOAD_FOLDER"] = "uploads"
 app.config["RESULTS_FOLDER"] = "results"
 app.config.from_object(Config)
 
+# Ограничения на размер загружаемых файлов (500 MB)
+app.config['MAX_CONTENT_LENGTH'] = 500 * 1024 * 1024  # 500 MB
+
 # Инициализация базы данных
 db.init_app(app)
 
@@ -80,6 +83,11 @@ init_earth_engine()
 
 
 # ====================== API ENDPOINTS ======================
+
+@app.errorhandler(413)
+def request_entity_too_large(error):
+    return jsonify({"error": "Файл слишком большой. Максимальный размер: 500 MB"}), 413
+
 @app.route('/api/geotiff/bounds', methods=['POST'])
 def geotiff_bounds():
     if 'file' not in request.files:
@@ -111,18 +119,27 @@ def geotiff_bounds():
 
 
 def workspace_item_to_dict(item):
+    # Извлекаем координаты, конвертируем из JSON если нужно
+    coords = item.polygon_coords
+    if isinstance(coords, str):
+        try:
+            import json
+            coords = json.loads(coords)
+        except:
+            coords = None
+    
     return {
         "id": item.id,
         "name": item.name,
         "type": item.type,
         "format": item.format,
         "dateAdded": item.date_added.isoformat() if item.date_added else None,
-        "polygonCoords": item.polygon_coords,
+        "polygonCoords": coords,
         "visibleOnMap": item.visible_on_map,
         "layerId": item.layer_id,
         "associatedKml": item.associated_kml_id,
         "imageThumbnail": None,
-        "children_ids": [child.id for child in item.children]  # ← добавлено
+        "children_ids": [child.id for child in item.children]
     }
 
 
@@ -154,10 +171,12 @@ def search_satellite_images():
         coords = kml_item.polygon_coords
         print(f"[BACKEND LOG] Исходные координаты из БД (тип {type(coords)}): {coords}")
 
+        # Конвертируем строку в JSON если нужно
         if isinstance(coords, str):
             import json
             coords = json.loads(coords)
 
+        # Извлекаем координаты из различных форматов GeoJSON
         if isinstance(coords, dict) and "coordinates" in coords:
             coords = coords["coordinates"]
         elif isinstance(coords, dict) and "geometry" in coords and "coordinates" in coords["geometry"]:
@@ -165,10 +184,19 @@ def search_satellite_images():
 
         print(f"[BACKEND LOG] Спарсенные координаты для полигона GEE: {coords}")
 
+        # Нормализуем формат координат для GEE
+        # GEE ожидает [lng, lat] порядок, а Leaflet хранит [lat, lng]
         if len(coords) == 1 and isinstance(coords[0], list) and isinstance(coords[0][0], list):
+            # Это уже Polygon с outer ring, проверяем порядок координат
+            first_coord = coords[0][0]
+            if len(first_coord) >= 2 and first_coord[0] > 90:  # Скорее всего [lat, lng]
+                # Конвертируем в [lng, lat]
+                coords = [[[c[1], c[0]] for c in ring] for ring in coords]
             roi = ee.Geometry.Polygon(coords)
         else:
-            roi = ee.Geometry.Polygon([coords])
+            # Это простой массив [lat, lng] точек, конвертируем в [[lng, lat], ...]
+            normalized = [[c[1], c[0]] for c in coords]
+            roi = ee.Geometry.Polygon([normalized])
 
         # Проверяем, что GEE видит геометрию нормально
         print(f"[BACKEND LOG] Центр полигона GEE: {roi.centroid().coordinates().getInfo()}")
@@ -208,6 +236,8 @@ def search_satellite_images():
 
     except Exception as e:
         print(f"[BACKEND LOG] 💥 КРИТИЧЕСКАЯ ОШИБКА НА СЕРВЕРЕ: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
 
@@ -252,6 +282,8 @@ def workspace():
             })
 
         except Exception as e:
+            import traceback
+            traceback.print_exc()
             return jsonify({"error": f"Ошибка сервера при получении данных: {str(e)}"}), 500
 
     if request.method == "POST":
@@ -270,6 +302,40 @@ def workspace():
 
         if item_type not in ("polygon", "satellite", "aero"):
             return jsonify({"error": "Invalid type"}), 400
+
+        # Валидация и нормализация координат
+        if coords is not None:
+            # Если координаты пришли в виде строки, парсим JSON
+            if isinstance(coords, str):
+                try:
+                    import json
+                    coords = json.loads(coords)
+                except:
+                    coords = None
+            
+            # Проверяем формат координат и нормализуем для Leaflet [lat, lng]
+            if coords is not None:
+                if isinstance(coords, dict):
+                    # GeoJSON формат - извлекаем coordinates
+                    if "coordinates" in coords:
+                        coords = coords["coordinates"]
+                    elif "geometry" in coords and "coordinates" in coords["geometry"]:
+                        coords = coords["geometry"]["coordinates"]
+                
+                # Конвертируем из [lng, lat] в [lat, lng] если нужно (для GEE совместимости)
+                if isinstance(coords, list) and len(coords) > 0:
+                    # Проверяем первый элемент
+                    first = coords[0] if not isinstance(coords[0], list) else coords[0][0] if isinstance(coords[0], list) and len(coords[0]) > 0 else None
+                    if first and isinstance(first, list) and len(first) >= 2:
+                        # Если первая координата > 90, скорее всего это [lng, lat] -> конвертируем
+                        if abs(first[0]) > 90 and abs(first[1]) <= 90:
+                            # Конвертируем весь массив
+                            if isinstance(coords[0], list) and isinstance(coords[0][0], list):
+                                # Polygon с ring: [[[lng,lat],...]] -> [[[lat,lng],...]]
+                                coords = [[[c[1], c[0]] for c in ring] for ring in coords]
+                            elif isinstance(coords[0], list):
+                                # Simple array: [[lng,lat],...] -> [[lat,lng],...]
+                                coords = [[c[1], c[0]] for c in coords]
 
         new_item = WorkspaceItem(
             user_id=user_id,
