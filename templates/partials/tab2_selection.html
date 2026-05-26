@@ -33,12 +33,13 @@
                         <!-- Подсписок спутниковых снимков -->
                         <div x-show="state.openAreaId === area.id && area.subItems?.length"
                              class="border-t border-slate-100 bg-slate-50">
-                            <template x-for="sub in area.subItems" :key="sub.id">
+                            <template x-for="(sub, index) in area.subItems" :key="sub.id">
                                 <div @click="selectSubItem(sub.id, area)"
                                      class="flex items-center pl-8 pr-3 py-1.5 cursor-pointer hover:bg-blue-100 transition-colors"
                                      :class="state.selectedItem?.id === sub.id ? 'bg-blue-200 ring-2 ring-blue-500' : ''">
                                     <span class="inline-block w-2 h-2 bg-green-500 rounded-full mr-2"></span>
                                     <span class="flex-1 text-sm" x-text="sub.name"></span>
+                                    <span class="text-xs text-slate-400 mr-2" x-text="`${index + 1}/${area.subItems.length}`"></span>
                                 </div>
                             </template>
                         </div>

@@ -11,7 +11,7 @@ import rasterio
 from rasterio.warp import transform_bounds
 
 from config import Config
-from db_models import db, User, WorkspaceItem, NeuralNetwork, Analysis
+from db_models import db, User, WorkspaceItem, NeuralNetwork, Analysis, WorkspaceSubItem
 
 import ee
 from gee_analysis import init_earth_engine
@@ -128,6 +128,23 @@ def workspace_item_to_dict(item):
         except:
             coords = None
     
+    # Для полигонов с дочерними снимками формируем subItems для фронтенда
+    sub_items = []
+    if item.type == 'polygon' and item.children:
+        # Сортируем дочерние снимки по дате acquisition_date
+        sorted_children = sorted(item.children, key=lambda x: x.acquisition_date or datetime.min)
+        for idx, child in enumerate(sorted_children, start=1):
+            sub_items.append({
+                "id": child.id,
+                "name": child.name,
+                "type": child.type,
+                "format": child.format,
+                "date": child.acquisition_date.strftime("%Y-%m-%d") if child.acquisition_date else "Неизвестно",
+                "cloud": getattr(child, 'cloud_cover', None),
+                "satellite_space_id": child.satellite_space_id,
+                "thumbnail_url": None  # Можно добавить URL превью если есть
+            })
+    
     return {
         "id": item.id,
         "name": item.name,
@@ -139,7 +156,8 @@ def workspace_item_to_dict(item):
         "layerId": item.layer_id,
         "associatedKml": item.associated_kml_id,
         "imageThumbnail": None,
-        "children_ids": [child.id for child in item.children]
+        "children_ids": [child.id for child in item.children],
+        "subItems": sub_items if sub_items else None
     }
 
 
@@ -351,7 +369,7 @@ def workspace():
         db.session.flush()
 
         if parent_id:
-            parent = WorkspaceItem.query.get(parent_id)
+            parent = db.session.get(WorkspaceItem, parent_id)
             if parent and parent.user_id == user_id:
                 parent.children.append(new_item)
 
@@ -388,7 +406,10 @@ def confirm_satellite_download():
     duplicate_count = 0
 
     try:
-        for img in selected_images:
+        # Сортируем снимки по дате для правильного порядкового номера
+        sorted_images = sorted(selected_images, key=lambda x: x.get("acquisition_date", ""))
+        
+        for idx, img in enumerate(sorted_images, start=1):
             space_id = img.get("satellite_space_id")
             acq_date_str = img.get("acquisition_date")
 
@@ -412,12 +433,17 @@ def confirm_satellite_download():
                 except ValueError:
                     pass
 
+            # Формируем имя в формате: Полигон_Sentinel_NN
+            # Очищаем имя полигона от спецсимволов и пробелов
+            safe_polygon_name = "".join(c for c in kml_item.name if c.isalnum() or c in " _-").strip().replace(" ", "_")
+            satellite_name = f"{safe_polygon_name}_Sentinel_{idx:02d}"
+
             # Создаем новую запись.
             # Обрати внимание: physical source_file пока пустой, так как физически TIF мы не качаем,
             # мы будем использовать мощности Google (gee_ref) для работы с ним в облаке!
             new_sat = WorkspaceItem(
                 user_id=user_id,
-                name=f"Снимок Sentinel-2 ({acq_date_str})",
+                name=satellite_name,
                 type="satellite",
                 format="gee_ref",  # Спец. формат, указывающий алгоритмам, что это виртуальный снимок в GEE
                 date_added=datetime.utcnow(),
@@ -428,6 +454,12 @@ def confirm_satellite_download():
             )
 
             db.session.add(new_sat)
+            db.session.flush()  # Получаем ID нового снимка
+            
+            # Добавляем связь parent-child в таблицу workspace_subitems
+            link = WorkspaceSubItem(parent_id=kml_item.id, child_id=new_sat.id)
+            db.session.add(link)
+            
             saved_count += 1
 
         db.session.commit()
@@ -489,8 +521,8 @@ def link_items(parent_id, child_id):
     if "user" not in session or session["user"]["role"] == "guest":
         return jsonify({"error": "Not allowed"}), 403
 
-    parent = WorkspaceItem.query.get(parent_id)
-    child = WorkspaceItem.query.get(child_id)
+    parent = db.session.get(WorkspaceItem, parent_id)
+    child = db.session.get(WorkspaceItem, child_id)
     if not parent or not child:
         return jsonify({"error": "Item not found"}), 404
 

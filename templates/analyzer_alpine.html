@@ -530,10 +530,10 @@
                      @click="startMultidateWithFound()">
                     <p class="font-medium">📂 Использовать найденные снимки</p>
                     <p class="text-xs text-slate-500 mt-1">
-                        <span x-show="!!state.workspaceItems.find(i=>i.id===state.selectedAreaId)?.subItems?.length">
+                        <span x-show="!!state.workspaceItems.find(i=>i.id===state.selectedAreaId)?.children_ids?.length || !!state.workspaceItems.find(i=>i.id===state.selectedAreaId)?.subItems?.length">
                             Снимки из подсписка полигона
                         </span>
-                        <span x-show="!state.workspaceItems.find(i=>i.id===state.selectedAreaId)?.subItems?.length">
+                        <span x-show="!state.workspaceItems.find(i=>i.id===state.selectedAreaId)?.children_ids?.length && !state.workspaceItems.find(i=>i.id===state.selectedAreaId)?.subItems?.length">
                             Снимки, отобранные через «Найти снимки» для этого полигона
                         </span>
                     </p>

@@ -35,11 +35,11 @@ export function toggleSubList(itemId, state) {
     const item = state.workspaceItems.find(i => i.id === itemId);
     if (!item) return;
 
-    // Раскрываем, если есть дети (children_ids) или старые subItems (для полигонов)
+    // Раскрываем, если есть дети (children_ids) или subItems (для полигонов со спутниками)
     const hasChildren = item.children_ids && item.children_ids.length > 0;
     const hasSubItems = item.subItems && item.subItems.length > 0;
     const canShowSub = (item.type === 'aero' && hasChildren) ||
-                       (item.type === 'polygon' && !item.associatedKml && hasSubItems);
+                       (item.type === 'polygon' && !item.associatedKml && (hasChildren || hasSubItems));
 
     if (canShowSub) {
         state.openAreaId = itemId;
