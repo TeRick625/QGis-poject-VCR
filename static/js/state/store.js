@@ -33,10 +33,8 @@ export const state = {
     isFindModalOpen: false,
     currentModalStep: 1,
     selectedImageIds: [],
-    fakeFoundImages: [
-        {id:1, date:'2025-03-15', cloud:12, name:'SN-20250315-1432'},
-        // ... остальные заглушки
-    ],
+    maxSelectableImages: 20,  // Лимит на количество выбираемых снимков
+    foundImages: [],  // Массив найденных снимков (заглушки удалены, теперь заполняется с сервера)
 
     analysisHistory: [],
     activeResult: null,
@@ -67,4 +65,7 @@ export const state = {
     selectedAreaId: null,
     selectedSatelliteId: null,
     selectedAeroId: null,
+    
+    // Состояние аккордеонов для полигонов со спутниковыми снимками
+    expandedPolygons: {},
 };

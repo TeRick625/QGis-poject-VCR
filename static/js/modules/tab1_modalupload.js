@@ -21,15 +21,40 @@ export function openUploadModal(state) {
 }
 
 export function setUploadFiles(type, files, state) {
+    const MAX_FILE_SIZE = 500 * 1024 * 1024; // 500 MB
+    const arr = Array.from(files);
+    
+    // Проверяем размер каждого файла перед добавлением
+    for (const file of arr) {
+        if (file.size > MAX_FILE_SIZE) {
+            alert(`Файл "${file.name}" превышает максимальный размер в 500 MB и не будет загружен.`);
+            console.warn(`Файл ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB) превышен лимит 500 MB`);
+            // Удаляем файл из списка
+            arr.splice(arr.indexOf(file), 1);
+        }
+    }
+    
     if (type === 'satellite') {
-        state.uploadModal.satelliteFiles = Array.from(files);
+        state.uploadModal.satelliteFiles = arr;
     } else {
-        state.uploadModal.polygonFiles = Array.from(files);
+        state.uploadModal.polygonFiles = arr;
     }
 }
 
 export function addAeroEntries(files, state) {
+    const MAX_FILE_SIZE = 500 * 1024 * 1024; // 500 MB
     const arr = Array.from(files);
+    
+    // Проверяем размер каждого файла перед добавлением
+    for (const file of arr) {
+        if (file.size > MAX_FILE_SIZE) {
+            alert(`Файл "${file.name}" превышает максимальный размер в 500 MB и не будет загружен.`);
+            console.warn(`Файл ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB) превышен лимит 500 MB`);
+            // Пропускаем этот файл
+            arr.splice(arr.indexOf(file), 1);
+        }
+    }
+    
     for (const file of arr) {
         state.uploadModal.aeroEntries.push({ image: file, kml: null });
     }
@@ -38,12 +63,19 @@ export function addAeroEntries(files, state) {
 export function attachKmlToAeroEntry(index) {
     const state = window.__uploadModalState;
     if (!state) return;
+    const MAX_FILE_SIZE = 500 * 1024 * 1024; // 500 MB
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = '.kml';
     input.onchange = (e) => {
         if (e.target.files.length > 0 && state.uploadModal.aeroEntries[index]) {
-            state.uploadModal.aeroEntries[index].kml = e.target.files[0];
+            const file = e.target.files[0];
+            if (file.size > MAX_FILE_SIZE) {
+                alert(`Файл "${file.name}" превышает максимальный размер в 500 MB и не будет загружен.`);
+                console.warn(`Файл ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB) превышен лимит 500 MB`);
+                return;
+            }
+            state.uploadModal.aeroEntries[index].kml = file;
         }
     };
     input.click();

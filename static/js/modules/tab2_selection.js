@@ -1,6 +1,17 @@
 // static/js/modules/tab2_selection.js
 
 export function selectItem(type, item, state) {
+    // Если кликнули на полигон, который уже раскрыт или имеет снимки - не сбрасываем выделение
+    const isPolygonWithImages = item.type === 'polygon' && item.subItems && item.subItems.length > 0;
+    
+    // Проверяем, не кликнули ли мы по уже выбранному элементу
+    const isAlreadySelected = state.selectedAreaId === item.id && type === 'area';
+    
+    if (isAlreadySelected && isPolygonWithImages) {
+        // Если кликнули повторно по раскрытому полигону - ничего не делаем
+        return;
+    }
+    
     state.selectedItem = null;
     state.selectedNN = null;
     state.selectedAreaId = null;
@@ -35,11 +46,11 @@ export function toggleSubList(itemId, state) {
     const item = state.workspaceItems.find(i => i.id === itemId);
     if (!item) return;
 
-    // Раскрываем, если есть дети (children_ids) или старые subItems (для полигонов)
+    // Раскрываем, если есть дети (children_ids) или subItems (для полигонов со спутниками)
     const hasChildren = item.children_ids && item.children_ids.length > 0;
     const hasSubItems = item.subItems && item.subItems.length > 0;
     const canShowSub = (item.type === 'aero' && hasChildren) ||
-                       (item.type === 'polygon' && !item.associatedKml && hasSubItems);
+                       (item.type === 'polygon' && !item.associatedKml && (hasChildren || hasSubItems));
 
     if (canShowSub) {
         state.openAreaId = itemId;
@@ -54,18 +65,19 @@ export function toggleSubList(itemId, state) {
     }
 }
 
-export function selectSubItem(subId, parentItem, state) {
+export function selectSubItem(sub, parentItem, state) {
     state.selectedItem = null;
     state.selectedNN = null;
     state.selectedAreaId = null;
     state.selectedSatelliteId = null;
     state.selectedAeroId = null;
 
-    const sub = state.workspaceItems.find(i => i.id === subId);
-    if (!sub) return;
-
-    if (parentItem.type === 'polygon') {
-        // Выбор спутникового снимка из подсписка полигона
+    // sub может быть объектом снимка или ID (для обратной совместимости)
+    const subId = typeof sub === 'object' ? sub.id : sub;
+    const subObj = state.workspaceItems.find(i => i.id === subId);
+    
+    if (!subObj && typeof sub === 'object') {
+        // Если sub это объект снимка из subItems полигона
         state.selectedItem = {
             type: 'satellite_from_area',
             id: sub.id,
@@ -73,11 +85,25 @@ export function selectSubItem(subId, parentItem, state) {
             isSubItem: true,
             parentPolygon: parentItem.name
         };
+        return;
+    }
+    
+    if (!subObj) return;
+
+    if (parentItem.type === 'polygon') {
+        // Выбор спутникового снимка из подсписка полигона
+        state.selectedItem = {
+            type: 'satellite_from_area',
+            id: subObj.id,
+            name: subObj.name,
+            isSubItem: true,
+            parentPolygon: parentItem.name
+        };
     } else {
         // Выбор KML из подсписка аэро
         state.selectedItem = {
             type: 'kml',                    // <-- меняем на 'kml'
-            id: sub.id,
+            id: subObj.id,
             name: parentItem.name,
             isSubItem: true,
             parentPolygon: parentItem.name
@@ -182,7 +208,7 @@ export function runAnalysis(state, callbacks) {
                         // Используем выбранные в модальном окне «Найти снимки»
                         snapshotIds = state.selectedImageIds;
                         snapshotDates = state.selectedImageIds.map(id => {
-                            const found = state.fakeFoundImages.find(img => img.id === id);
+                            const found = state.foundImages.find(img => img.id === id);
                             return found ? found.date : '?';
                         });
                     }

@@ -1,7 +1,9 @@
 // static/js/modules/tab2_modal_find.js
 
 export function openFindImagesModal(state) {
-    if (!state.selectedItem || state.selectedItem.type !== 'area') return;
+    // Разрешаем открывать модальное окно для полигонов типа 'area' и 'polygon'
+    if (!state.selectedItem || (state.selectedItem.type !== 'area' && state.selectedItem.type !== 'polygon')) return;
+    if (state.selectedItem.isSubItem) return;
 
     state.currentModalStep = 1;
     state.selectedImageIds = [];
@@ -30,6 +32,11 @@ export function toggleImageSelection(id, state) {
     if (state.selectedImageIds.includes(id)) {
         state.selectedImageIds = state.selectedImageIds.filter(i => i !== id);
     } else {
+        // Проверка на максимальное количество выбираемых снимков (20)
+        if (state.selectedImageIds.length >= (state.maxSelectableImages || 20)) {
+            alert(`Максимальное количество снимков для выбора: ${state.maxSelectableImages || 20}. Сначала удалите некоторые выбранные снимки.`);
+            return;
+        }
         state.selectedImageIds.push(id);
     }
 }
@@ -85,6 +92,8 @@ export async function triggerSearchImages(state) {
         console.groupEnd();
 
         if (data.success && data.images && data.images.length > 0) {
+            // Ограничиваем количество выбираемых снимков до 20
+            state.maxSelectableImages = 20;
             state.foundImages = data.images.map(img => ({
                 id: img.satellite_space_id,
                 name: `Sentinel-2 (${img.acquisition_date})`,
@@ -127,9 +136,13 @@ export async function confirmSelectedImages(state, callbacks) {
         if (data.success) {
             console.log(data.message);
             // Важнейший шаг: запрашиваем обновленный список файлов с сервера!
-            // Наш KML спроецируется с новыми снимками внутри children_ids
-            if (callbacks.loadWorkspaceFromServer) {
-                callbacks.loadWorkspaceFromServer();
+            // Вызываем НОВЫЙ метод loadWorkspaceFromServer из analyzer_alpine.js,
+            // который автоматически раскроет полигоны со снимками
+            if (callbacks && callbacks.loadWorkspaceFromServer) {
+                await callbacks.loadWorkspaceFromServer();
+            } else if (callbacks && typeof callbacks.loadWorkspaceFromServer === 'function') {
+                // Для совместимости, если передан просто объект с функцией
+                await callbacks.loadWorkspaceFromServer();
             }
             closeFindImagesModal(state);
         } else {

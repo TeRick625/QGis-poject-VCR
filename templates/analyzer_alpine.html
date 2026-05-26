@@ -346,7 +346,8 @@
                                     <div @click="toggleImageSelection(img.id)"
                                          @mouseenter="setPreviewImage(img.thumbnail_url)"
                                          :class="state.selectedImageIds.includes(img.id) ? 'border-blue-500 bg-blue-50/30 ring-1 ring-blue-500/30' : 'border-slate-200/70 hover:border-slate-300 hover:bg-slate-50/50 bg-white'"
-                                         class="flex justify-between items-center px-4 py-3 border rounded-xl cursor-pointer transition-all duration-150 group">
+                                         class="flex justify-between items-center px-4 py-3 border rounded-xl cursor-pointer transition-all duration-150 group"
+                                         :title="state.selectedImageIds.includes(img.id) ? 'Выбрано' : ''">
 
                                         <div class="flex items-center gap-3">
                                             <div :class="state.selectedImageIds.includes(img.id) ? 'bg-blue-600 border-blue-600 text-white' : 'border-slate-300 bg-white text-transparent group-hover:border-slate-400'"
@@ -369,6 +370,12 @@
                                         </span>
                                     </div>
                                 </template>
+                                
+                                <!-- Индикатор лимита выбора -->
+                                <div x-show="state.selectedImageIds.length >= (state.maxSelectableImages || 20)" 
+                                     class="mt-3 p-2 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-700 text-center">
+                                    Достигнут лимит выбора (<span x-text="state.selectedImageIds.length"></span>/<span x-text="state.maxSelectableImages || 20"></span>)
+                                </div>
                             </div>
 
                             <div class="w-80 bg-slate-50 rounded-2xl border border-slate-200/50 overflow-hidden flex flex-col relative group">
@@ -530,10 +537,10 @@
                      @click="startMultidateWithFound()">
                     <p class="font-medium">📂 Использовать найденные снимки</p>
                     <p class="text-xs text-slate-500 mt-1">
-                        <span x-show="!!state.workspaceItems.find(i=>i.id===state.selectedAreaId)?.subItems?.length">
+                        <span x-show="!!state.workspaceItems.find(i=>i.id===state.selectedAreaId)?.children_ids?.length || !!state.workspaceItems.find(i=>i.id===state.selectedAreaId)?.subItems?.length">
                             Снимки из подсписка полигона
                         </span>
-                        <span x-show="!state.workspaceItems.find(i=>i.id===state.selectedAreaId)?.subItems?.length">
+                        <span x-show="!state.workspaceItems.find(i=>i.id===state.selectedAreaId)?.children_ids?.length && !state.workspaceItems.find(i=>i.id===state.selectedAreaId)?.subItems?.length">
                             Снимки, отобранные через «Найти снимки» для этого полигона
                         </span>
                     </p>
