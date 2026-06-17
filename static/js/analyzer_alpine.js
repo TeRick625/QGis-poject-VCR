@@ -160,9 +160,9 @@ document.addEventListener('alpine:init', () => {
         get flattenedItems() {
             const result = [];
             const visited = new Set();
-
-            // Собираем все id, которые являются чьими-то детьми
             const allChildIds = new Set();
+
+            // Собираем все ID, которые являются чьими-то детьми
             for (const item of this.state.workspaceItems) {
                 if (item.children_ids) {
                     item.children_ids.forEach(id => allChildIds.add(id));
@@ -172,9 +172,17 @@ document.addEventListener('alpine:init', () => {
             const addItem = (item, depth = 0, parentId = null) => {
                 if (visited.has(item.id)) return;
                 visited.add(item.id);
-                result.push(item);
 
-                // Обрабатываем детей из children_ids (старая логика для aero+kml)
+                // === НОВОЕ ПРАВИЛО: Скрываем GEE-спутники из таблицы первой вкладки ===
+                // Они создаются с полем associatedKml. Мы не добавляем их в result.
+                const isGEESatellite = item.type === 'satellite' && item.associatedKml;
+
+                if (!isGEESatellite) {
+                    result.push(item);
+                }
+
+                // Обрабатываем детей из children_ids (это KML-файлы, привязанные к аэрофотоснимкам)
+                // Их мы оставляем, так как это не GEE-спутники
                 const childIds = item.children_ids || [];
                 for (const childId of childIds) {
                     const child = this.state.workspaceItems.find(i => i.id === childId);
@@ -188,27 +196,18 @@ document.addEventListener('alpine:init', () => {
                     }
                 }
 
-                // НОВАЯ ЛОГИКА: Если это полигон с подэлементами (спутниковые снимки),
-                // добавляем их как вложенные элементы
-                if (item.type === 'polygon' && item.subItems && item.subItems.length > 0) {
-                    for (const subItem of item.subItems) {
-                        result.push({
-                            ...subItem,
-                            isChild: true,
-                            parentId: item.id,
-                            depth: depth + 1,
-                            isSatelliteImage: true
-                        });
-                    }
-                }
+                // === УДАЛЕНО: Добавление subItems (спутников) в таблицу первой вкладки ===
+                // Ранее здесь был код, который добавлял item.subItems в result.
+                // Теперь они будут видны только во второй вкладке "Анализ и маски", не захламляя первую.
             };
 
-            // Добавляем только те элементы, которые НЕ являются чьими-то детьми
+            // Добавляем только те элементы, которые НЕ являются чьими-то детьми на верхнем уровне
             for (const item of getFilteredSortedItems(this.state)) {
                 if (!allChildIds.has(item.id)) {
                     addItem(item);
                 }
             }
+
             return result;
         },
 

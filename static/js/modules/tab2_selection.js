@@ -117,35 +117,21 @@ export function getFilteredNN(state) {
     const itemType = state.selectedItem.type;
     const isSubItem = state.selectedItem.isSubItem;
 
-    // Многодатный анализ – для чистого полигона без подэлемента
-    if (itemType === 'area' && !isSubItem) {
+    // 1. Многодатный анализ (ID 1) – для чистого полигона или KML-подэлемента
+    if ((itemType === 'area' && !isSubItem) || itemType === 'kml') {
         return state.neuralNetworks.filter(nn => nn.id === 1);
     }
 
-    // KML-подэлемент аэро → многодатный анализ
-    if (itemType === 'kml') {
-        return state.neuralNetworks.filter(nn => nn.id === 1);
-    }
-
-    // Спутниковые алгоритмы
+    // 2. Спутниковые алгоритмы (ID 2) - для спутникового снимка
     if (itemType === 'satellite' || itemType === 'satellite_from_area') {
-        if (itemType === 'satellite_from_area') {
-            return state.neuralNetworks.filter(nn => nn.id === 2);
-        }
-        return state.neuralNetworks.filter(nn => nn.id === 3);
+        return state.neuralNetworks.filter(nn => nn.id === 2);
     }
 
-    // Аэро алгоритмы
+    // 3. Аэро алгоритмы (ID 3) - для аэрофотоснимка
     if (itemType === 'aero') {
-        const aeroItem = state.workspaceItems.find(i => i.id === state.selectedItem.id);
-        const hasKml = aeroItem && aeroItem.associatedKml;
-
-        if (hasKml) {
-            // Для аэро с KML показываем и 4, и 5
-            return state.neuralNetworks.filter(nn => nn.id === 4 || nn.id === 5);
-        } else {
-            return state.neuralNetworks.filter(nn => nn.id === 4);
-        }
+        // Теперь нам не нужно проверять наличие KML на фронте!
+        // Алгоритм один (ID 3), а на бэкенде он сам проверит, есть ли KML, и посчитает статистику.
+        return state.neuralNetworks.filter(nn => nn.id === 3);
     }
 
     return [];
@@ -174,98 +160,143 @@ export function determineResultViewType(state) {
     return 'satellite_basic';
 }
 
-export function runAnalysis(state, callbacks) {
+// static/js/modules/tab2_selection.js (или твой файл с логикой запуска)
+
+export async function runAnalysis(state, callbacks) {
     if (!state.selectedItem || !state.selectedNN) return;
 
-    const viewType = determineResultViewType(state);
-    // Формируем данные, специфичные для алгоритма
-    let algorithmData = null;
-    const nnType = state.selectedNN?.type; // нужно сохранить type нейросети при выборе
+    // === 1. ФОРМИРОВАНИЕ ПАРАМЕТРОВ ДЛЯ БЭКЕНДА ===
+    let params = {};
+    const nnType = state.selectedNN.type;
 
-     if (nnType === 'multidate' && !state.activationMethod) {
-        if (callbacks.openActivationModal) {
-            callbacks.openActivationModal();
+    if (nnType === 'multidate') {
+        // Если пользователь еще не выбрал способ активации, открываем модалку
+        if (!state.activationMethod) {
+            if (callbacks.openActivationModal) callbacks.openActivationModal();
+            return;
         }
-        return;
+
+        if (state.activationMethod === 'found') {
+            // Способ 1: Уже найденные снимки
+            params.dates = state.selectedImageIds.map(id => {
+                const found = state.foundImages.find(img => img.id === id);
+                return found ? found.date : null;
+            }).filter(Boolean);
+            params.image_ids = state.selectedImageIds;
+
+        } else if (state.activationMethod === 'params') {
+            // Способ 2: Задать параметры (воркер сам их найдет через GEE)
+            params.date_start = `${state.activationParams.yearFrom}-01-01`;
+            params.date_end = `${state.activationParams.yearTo}-12-31`;
+            params.max_cloud = state.activationParams.cloudMax;
+            params.season = state.activationParams.season;
+
+        } else if (state.activationMethod === 'upload') {
+            // Способ 3: Загруженные файлы (пока передаем ID загруженных файлов)
+            params.uploaded_file_ids = state.uploadedSnapshotIds;
+        }
+
+    } else if (nnType === 'satellite') {
+        params.file_id = state.selectedItem.id;
+
+    } else if (nnType === 'aero') {
+        params.aero_id = state.selectedItem.id;
+        // Ищем связанный KML, если он есть
+        const aeroItem = state.workspaceItems.find(i => i.id === state.selectedItem.id);
+        if (aeroItem && aeroItem.associatedKml) {
+            params.kml_id = aeroItem.associatedKml.id;
+        }
     }
 
-    // Найдём выбранную нейросеть, чтобы узнать её type
-    const selectedNNObj = state.neuralNetworks.find(n => n.id === state.selectedNN?.id);
-    if (selectedNNObj) {
-        switch (selectedNNObj.type) {
-            case 'multidate':
-                let snapshotIds = [];
-                let snapshotDates = [];
-                const polygon = state.workspaceItems.find(i => i.id === state.selectedAreaId);
-                if (state.activationMethod === 'found') {
-                    const polygon = state.workspaceItems.find(i => i.id === state.selectedAreaId);
-                    if (polygon && polygon.subItems && polygon.subItems.length > 0) {
-                        // Берём из подсписка полигона
-                        snapshotIds = polygon.subItems.map(s => s.id);
-                        snapshotDates = polygon.subItems.map(s => s.date);
-                    } else {
-                        // Используем выбранные в модальном окне «Найти снимки»
-                        snapshotIds = state.selectedImageIds;
-                        snapshotDates = state.selectedImageIds.map(id => {
-                            const found = state.foundImages.find(img => img.id === id);
-                            return found ? found.date : '?';
-                        });
-                    }
+    // === 2. ОТПРАВКА ЗАПРОСА НА СОЗДАНИЕ ЗАДАЧИ ===
+    state.isAnalysisRunning = true;
+    if (window.showToast) window.showToast("🚀 Отправка задачи на сервер...", "info");
+
+    try {
+        const response = await fetch('/api/analysis/launch', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                input_item_id: state.selectedItem.id,
+                model_code: state.selectedNN.code_name, // Передаем code_name!
+                params: params
+            })
+        });
+
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Ошибка сервера при создании задачи");
+
+        const analysisId = data.analysis_id;
+        if (window.showToast) window.showToast("⏳ Задача в очереди. Ожидание воркера...", "info");
+
+        // === 3. ЗАПУСК ПОЛЛИНГА (ОПРОС СТАТУСА КАЖДЫЕ 2 СЕКУНДЫ) ===
+        const pollInterval = setInterval(async () => {
+            try {
+                const statusRes = await fetch(`/api/analysis/${analysisId}/status`);
+                const statusData = await statusRes.json();
+
+                // --- СЦЕНАРИЙ А: АНАЛИЗ УСПЕШНО ЗАВЕРШЕН ---
+                if (statusData.status === 'completed') {
+                    clearInterval(pollInterval);
+                    state.isAnalysisRunning = false;
+
+                    // Восстанавливаем activeResult ПОЛНОСТЬЮ из данных, которые вернул сервер (Вариант А)
+                    const serverData = statusData.algorithm_data || {};
+
+                    state.activeResult = {
+                        id: analysisId,
+                        timestamp: new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }),
+                        type: state.selectedNN.type,
+                        itemName: state.selectedItem.name,
+                        nnName: state.selectedNN.name,
+                        hasPolygon: state.selectedItem.type === 'area' || state.selectedItem.type === 'polygon',
+
+                        // Поля для UI (берем из БД, если сервер их сохранил, иначе дефолтные)
+                        resultViewType: serverData.result_view_type || determineResultViewType(state),
+                        polygonOpacity: serverData.polygon_opacity ?? 0.5,
+                        aeroOverlayOpacity: serverData.aero_overlay_opacity ?? 0.6,
+                        snapshotDates: serverData.snapshot_dates || [],
+                        snapshotIndex: serverData.snapshot_index || 0,
+                        rangeStart: serverData.range_start || 0,
+                        rangeEnd: serverData.range_end || (serverData.snapshot_dates?.length - 1) || 0,
+                        deepAnalysisEnabled: serverData.deep_analysis_enabled || false,
+
+                        // Реальные данные от алгоритма
+                        metrics: serverData.metrics || {},
+                        maskUrl: serverData.mask_url || null,
+
+                        // Сырые данные для возможного повторного запуска из истории
+                        algorithmData: serverData
+                    };
+
+                    // Добавляем успешный анализ в историю (в начало)
+                    state.analysisHistory.unshift(state.activeResult);
+                    state.currentResultIndex = 0;
+
+                    if (window.showToast) window.showToast("✅ Анализ успешно завершен!", "success");
+
+                    // Переключаем интерфейс в режим результата
+                    if (callbacks.switchMode) callbacks.switchMode('result', state, callbacks);
+
+                // --- СЦЕНАРИЙ Б: АЛГОРИТМ УПАЛ С ОШИБКОЙ ---
+                } else if (statusData.status === 'failed') {
+                    clearInterval(pollInterval);
+                    state.isAnalysisRunning = false;
+                    const errorMsg = statusData.error_message || "Неизвестная ошибка алгоритма";
+                    console.error("Ошибка анализа:", errorMsg);
+                    if (window.showToast) window.showToast(`❌ Ошибка: ${errorMsg}`, "error");
                 }
-                break;
-            case 'satellite':
-                // Для алгоритмов 2/3 нужен id спутникового снимка
-                algorithmData = { fileId: state.selectedItem.id };
-                break;
-            case 'aero':
-                // Для алгоритмов 4/5 нужен id аэрофото + id привязанного KML (если есть)
-                algorithmData = {
-                    aeroId: state.selectedItem.id,
-                    kmlId: state.selectedItem.isSubItem ? state.selectedItem.id : null
-                };
-                break;
-        }
-    state.activationMethod = null;
-    state.uploadedSnapshots = [];
-    }
-    state.selectedAlgorithmData = algorithmData;
+                // Если status === 'running' или 'pending', просто ждем следующего тика setInterval
 
+            } catch (pollError) {
+                console.error("Ошибка сети при опросе статуса:", pollError);
+            }
+        }, 2000); // Опрос каждые 2 секунды
 
-
-    const snapshotDates = algorithmData?.snapshotDates || [];
-    const lastIdx = snapshotDates.length - 1;
-
-    const newResult = {
-        id: Date.now(),
-        timestamp: new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }),
-        type: state.selectedItem.type === 'aero' ? 'aero' :
-              (state.selectedNN?.type === 'multidate' ? 'multidate' : 'satellite'),
-        itemName: state.selectedItem.name,
-        nnName: state.selectedNN.name || `NN #${state.selectedNN.id}`,
-        hasPolygon: state.selectedItem.isSubItem || state.selectedItem.type === 'area',
-        resultViewType: viewType,
-        polygonOpacity: 0.5,
-        aeroOverlayOpacity: 0.6,
-        uploadedAeroFile: null,
-        deepAnalysisEnabled: false,
-        snapshotDates: snapshotDates,
-        snapshotIndex: 0,
-        rangeStart: 0,
-        rangeEnd: lastIdx >= 0 ? lastIdx : 0,
-    };
-
-    state.analysisHistory.unshift(newResult);
-    state.activeResult = newResult;
-    state.currentResultIndex = 0;
-    state.resultViewType = viewType;
-    state.uploadedAeroFile = null;
-    state.deepAnalysisEnabled = false;
-    state.polygonOpacity = 0.5;
-    state.aeroOverlayOpacity = 0.6;
-    state.mode = 'result';
-
-    if (callbacks.switchMode) {
-        callbacks.switchMode('result', state, callbacks);
+    } catch (error) {
+        state.isAnalysisRunning = false;
+        console.error("Критическая ошибка запуска анализа:", error);
+        if (window.showToast) window.showToast(error.message, "error");
     }
 }
 

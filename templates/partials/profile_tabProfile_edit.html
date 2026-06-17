@@ -24,8 +24,10 @@
         <!-- Правая колонка – смена аватара -->
         <div class="flex flex-col items-center gap-3">
             <p class="text-sm font-medium text-slate-700">Аватар</p>
-            <div class="w-32 h-32 rounded-full bg-gradient-to-br from-blue-400 to-blue-600 flex items-center justify-center text-white text-4xl font-bold shadow-md">
-                <span x-text="profileState.user.name.split(' ').map(n => n[0]).join('').slice(0, 2)"></span>
+            <!-- Динамический аватар -->
+            <div class="w-32 h-32 rounded-full flex items-center justify-center text-4xl font-bold shadow-md transition-colors duration-300"
+                 :style="`background-color: ${getAvatarBg(profileState.user.name)}; color: ${getAvatarTextColor(profileState.user.name)};`">
+                <span x-text="getInitials(profileState.user.name)"></span>
             </div>
             <label class="inline-block px-4 py-2 bg-slate-100 hover:bg-slate-200 text-sm rounded-xl cursor-pointer transition">
                 Загрузить фото

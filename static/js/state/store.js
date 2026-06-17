@@ -22,11 +22,36 @@ export const state = {
     coordInputs: [{ value: '' }, { value: '' }, { value: '' }],
 
     neuralNetworks: [
-        { id: 1, name: "Многодатный анализ изменений", shortDesc: "...", type: "multidate", applicableTo: "Полигон...", detail: "..." },
-        { id: 2, name: "Спутниковый анализ (из подсписка)", shortDesc: "...", type: "satellite", applicableTo: "...", detail: "..." },
-        { id: 3, name: "Спутниковый анализ (загруженный)", shortDesc: "...", type: "satellite", applicableTo: "...", detail: "..." },
-        { id: 4, name: "Аэрофото анализ", shortDesc: "...", type: "aero", applicableTo: "...", detail: "..." },
-        { id: 5, name: "Аэрофото анализ с геопривязкой", shortDesc: "...", type: "aero", applicableTo: "...", detail: "..." }
+        {
+            id: 1,
+            code_name: "satellite_multi",
+            name: "Многодатный анализ изменений",
+            shortDesc: "Сравнение серии снимков Sentinel-2 во времени",
+            detail: "Анализирует архивные снимки за выбранный период. Строит композитную маску усыхания, устраняя облачность. Позволяет отследить динамику деградации.",
+            type: "multidate",
+            applicableTo: "Полигон (с привязанными снимками)",
+            icon: "📊"
+        },
+        {
+            id: 2,
+            code_name: "satellite_single",
+            name: "Спутниковый анализ (одиночный)",
+            shortDesc: "Построение маски по одному снимку Sentinel-2",
+            detail: "Рассчитывает NDVI для обнаружения зон усыхания на основе одного актуального снимка. Автоматически маскирует облака.",
+            type: "satellite",
+            applicableTo: "Спутниковый снимок (GeoTIFF / GEE)",
+            icon: "🛰️"
+        },
+        {
+            id: 3,
+            code_name: "aerial_segment",
+            name: "Аэрофото анализ (UNet)",
+            shortDesc: "Нейросетевая сегментация крон деревьев",
+            detail: "Использует U-Net для пиксельной классификации аэрофотоснимка. Если к снимку привязан KML-полигон, алгоритм автоматически рассчитает статистику усыхания строго внутри его границ.",
+            type: "aero",
+            applicableTo: "Аэрофотоснимок (с KML или без)",
+            icon: "🌲"
+        }
     ],
     selectedAlgorithmData: null,
 

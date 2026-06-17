@@ -16,6 +16,10 @@ from db_models import db, User, WorkspaceItem, NeuralNetwork, Analysis, Workspac
 import ee
 from gee_analysis import init_earth_engine
 
+from algorithms.alg1_aerial import run_aerial_analysis
+from algorithms.alg2_satellite import run_satellite_analysis
+import json
+
 
 # ====================== CONFIG ======================
 app = Flask(__name__)
@@ -661,6 +665,95 @@ def launch_analysis():
         return jsonify({"error": f"Ошибка при создании задачи: {str(e)}"}), 500
 
 
+# ====================== API: ПРОФИЛЬ И ИСТОРИЯ ======================
+
+@app.route("/api/profile", methods=["GET"])
+def get_profile():
+    if "user" not in session:
+        return jsonify({"error": "Not logged in"}), 401
+
+    user = User.query.get(session["user"]["id"])
+    if not user:
+        return jsonify({"error": "User not found"}), 404
+
+    return jsonify({
+        "name": f"{user.surname} {user.name} {user.patronymic}".strip(),
+        "email": user.email,
+        "department": user.department or "Не указано",
+        "registration_date": user.registration_date.strftime("%d.%m.%Y") if user.registration_date else "Не указано",
+        "role": user.role
+    })
+
+
+@app.route("/api/profile", methods=["PUT"])
+def update_profile():
+    if "user" not in session:
+        return jsonify({"error": "Not logged in"}), 401
+
+    user = User.query.get(session["user"]["id"])
+    data = request.get_json()
+
+    if "name" in data:
+        # Простой парсинг имени (в реальном проекте лучше разделять поля на фронте)
+        parts = data["name"].strip().split()
+        if len(parts) >= 2:
+            user.surname = parts[0]
+            user.name = parts[1]
+            user.patronymic = " ".join(parts[2:]) if len(parts) > 2 else ""
+
+    if "email" in data and data["email"] != user.email:
+        if User.query.filter_by(email=data["email"]).first():
+            return jsonify({"error": "Email уже используется"}), 400
+        user.email = data["email"]
+
+    if "password" in data and data["password"].strip():
+        user.password_hash = generate_password_hash(data["password"].strip())
+
+    db.session.commit()
+
+    # Обновляем сессию
+    session["user"]["name"] = f"{user.surname} {user.name}"
+    session["user"]["email"] = user.email
+
+    return jsonify({"success": True, "message": "Профиль обновлен"})
+
+
+@app.route("/api/analysis/history", methods=["GET"])
+def get_analysis_history():
+    if "user" not in session:
+        return jsonify({"error": "Not logged in"}), 401
+
+    analyses = Analysis.query.filter_by(user_id=session["user"]["id"]).order_by(Analysis.timestamp.desc()).all()
+
+    history = []
+    for a in analyses:
+        nn = NeuralNetwork.query.get(a.neural_network_id) if a.neural_network_id else None
+        history.append({
+            "id": a.id,
+            "timestamp": a.timestamp.strftime("%Y-%m-%d %H:%M"),
+            "algorithmName": nn.name if nn else "Неизвестный алгоритм",
+            "objectName": a.item_name,
+            "type": a.result_view_type or "unknown",
+            "algorithm_data": a.algorithm_data,  # Сохраняем для повторного запуска
+            "status": a.status
+        })
+
+    return jsonify({"success": True, "history": history})
+
+
+@app.route("/api/analysis/<int:analysis_id>", methods=["DELETE"])
+def delete_analysis(analysis_id):
+    if "user" not in session:
+        return jsonify({"error": "Not logged in"}, 401)
+
+    analysis = Analysis.query.filter_by(id=analysis_id, user_id=session["user"]["id"]).first()
+    if not analysis:
+        return jsonify({"error": "Анализ не найден или нет прав"}), 404
+
+    db.session.delete(analysis)
+    db.session.commit()
+    return jsonify({"success": True})
+
 # ====================== ROUTES (HTML) ======================
 @app.route("/login", methods=["GET", "POST"])
 def login():
@@ -762,6 +855,131 @@ def logout():
     session.pop("user", None)
     flash("Вы вышли из аккаунта", "info")
     return redirect(url_for("login"))
+
+
+@app.route("/api/analysis/<int:analysis_id>/status", methods=["GET"])
+def check_analysis_status(analysis_id):
+    if "user" not in session:
+        return jsonify({"error": "Not logged in"}), 401
+
+    analysis = Analysis.query.filter_by(id=analysis_id, user_id=session["user"]["id"]).first()
+    if not analysis:
+        return jsonify({"error": "Анализ не найден"}), 404
+
+    return jsonify({
+        "status": analysis.status,  # 'pending', 'running', 'completed', 'failed'
+        "algorithm_data": analysis.algorithm_data,  # Сюда воркер запишет метрики
+        "error_message": analysis.error_message
+    })
+
+@app.route("/api/neural-networks", methods=["GET"])
+def get_neural_networks():
+    networks = NeuralNetwork.query.filter_by(is_active=True).all()
+    return jsonify([{
+        "id": nn.id,
+        "code_name": nn.code_name,
+        "name": nn.name,
+        "short_desc": nn.short_desc,
+        "type": nn.type,  # Нужно добавить это поле в модель NeuralNetwork
+        "applicable_to": nn.applicable_to
+    } for nn in networks])
+
+
+def execute_analysis_task(analysis_id):
+    """
+    Эта функция вызывается воркером (или фоново).
+    Она достает задачу из БД, собирает данные и запускает нужный алгоритм.
+    """
+    analysis = Analysis.query.get(analysis_id)
+    if not analysis:
+        return
+
+    try:
+        # Меняем статус на "выполняется"
+        analysis.status = "running"
+        db.session.commit()
+
+        # Достаем параметры, которые фронтенд сохранил при запуске
+        ui_params = analysis.algorithm_data.get("ui_configured_parameters", {})
+        input_item_id = ui_params.get("input_item_id")
+        model_code = analysis.neural_network.code_name  # Например, 'aerial_segment' или 'satellite_multi'
+
+        input_item = WorkspaceItem.query.get(input_item_id)
+        if not input_item:
+            raise ValueError("Объект для анализа не найден в БД")
+
+        result_data = {}
+
+        # === МАРШРУТИЗАЦИЯ ПО ТИПУ АЛГОРИТМА ===
+
+        if model_code == 'aerial_segment':
+            # 1. Получаем путь к файлу аэрофотоснимка
+            aero_path = input_item.source_file
+
+            # 2. Ищем связанный KML (если есть)
+            kml_coords = None
+            if input_item.associated_kml_id:
+                kml_item = WorkspaceItem.query.get(input_item.associated_kml_id)
+                if kml_item and kml_item.polygon_coords:
+                    kml_coords = kml_item.polygon_coords
+                    # Если координаты в БД хранятся как строка JSON, парсим их
+                    if isinstance(kml_coords, str):
+                        kml_coords = json.loads(kml_coords)
+
+            # 3. Запуск Алг1
+            result_data = run_aerial_analysis(aero_path, kml_coords, analysis_id)
+
+        elif model_code in ['satellite_single', 'satellite_multi']:
+            # 1. Получаем координаты полигона
+            polygon_coords = input_item.polygon_coords
+            if isinstance(polygon_coords, str):
+                polygon_coords = json.loads(polygon_coords)
+
+            # 2. Формируем контекст для Алг2 на основе того, что выбрал юзер на сайте
+            context = {}
+
+            # Сценарий А: Юзер выбрал найденные сайтом снимки (они лежат в children полигона)
+            if input_item.children:
+                gee_ids = [child.satellite_space_id for child in input_item.children if child.satellite_space_id]
+                if gee_ids:
+                    # Уникальный ID на сайте имеет формат "space_id__kml_X", нужно очистить для GEE
+                    clean_ids = [gid.split('__')[0] for gid in gee_ids]
+                    context['gee_image_ids'] = clean_ids
+
+            # Сценарий Б: Юзер загрузил свои TIF файлы (они тоже могут быть в children или в самом item)
+            elif input_item.format == 'geotiff' or any(c.format == 'geotiff' for c in input_item.children):
+                local_paths = [c.source_file for c in input_item.children if c.source_file]
+                if input_item.source_file: local_paths.append(input_item.source_file)
+                context['local_tif_paths'] = local_paths
+
+            # Сценарий В: Фоллбэк, просто параметры поиска
+            else:
+                context['search_params'] = {
+                    'date_start': ui_params.get('date_start'),
+                    'date_end': ui_params.get('date_end'),
+                    'max_cloud': ui_params.get('max_cloud', 20)
+                }
+
+            # 3. Запуск Алг2
+            result_data = run_satellite_analysis(polygon_coords, context, analysis_id)
+
+        else:
+            raise ValueError(f"Неизвестный код алгоритма: {model_code}")
+
+        # === УСПЕШНОЕ ЗАВЕРШЕНИЕ ===
+        analysis.status = "completed"
+        # Сливаем новые метрики с теми, что уже были в algorithm_data
+        analysis.algorithm_data.update(result_data)
+        db.session.commit()
+        print(f"[Worker] Анализ {analysis_id} успешно завершен.")
+
+    except Exception as e:
+        # === ОБРАБОТКА ОШИБКИ ===
+        db.session.rollback()
+        analysis.status = "failed"
+        analysis.error_message = str(e)
+        db.session.commit()
+        print(f"[Worker] Ошибка анализа {analysis_id}: {e}")
 
 
 if __name__ == "__main__":
