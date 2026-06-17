@@ -128,10 +128,10 @@ def workspace_item_to_dict(item):
         except:
             coords = None
 
-    # Для полигонов с дочерними снимками формируем subItems для фронтенда
     sub_items = []
-    if item.type == 'polygon' and item.children:
-        # Сортируем дочерние снимки по дате acquisition_date
+
+    # 1. Обрабатываем дочерние элементы (для связки Аэро + KML через Many-to-Many)
+    if item.children:
         sorted_children = sorted(item.children, key=lambda x: x.acquisition_date or datetime.min)
         for idx, child in enumerate(sorted_children, start=1):
             sub_items.append({
@@ -142,7 +142,24 @@ def workspace_item_to_dict(item):
                 "date": child.acquisition_date.strftime("%Y-%m-%d") if child.acquisition_date else "Неизвестно",
                 "cloud": getattr(child, 'cloud_cover', None),
                 "satellite_space_id": child.satellite_space_id,
-                "thumbnail_url": None  # Можно добавить URL превью если есть
+                "thumbnail_url": None
+            })
+
+    # 2. НОВАЯ ЛОГИКА: Обрабатываем GEE-снимки, привязанные к полигону через associated_kml_id
+    if item.type == 'polygon':
+        # Ищем все спутники, у которых этот полигон указан как родитель (associated_kml_id)
+        gee_sats = WorkspaceItem.query.filter_by(associated_kml_id=item.id, type='satellite').all()
+        sorted_gee_sats = sorted(gee_sats, key=lambda x: x.acquisition_date or datetime.min)
+        for idx, sat in enumerate(sorted_gee_sats, start=1):
+            sub_items.append({
+                "id": sat.id,
+                "name": sat.name,
+                "type": sat.type,
+                "format": sat.format,
+                "date": sat.acquisition_date.strftime("%Y-%m-%d") if sat.acquisition_date else "Неизвестно",
+                "cloud": None,  # Поле cloud_cover можно добавить в db_models.py позже, пока None
+                "satellite_space_id": sat.satellite_space_id,
+                "thumbnail_url": None
             })
 
     return {
@@ -156,8 +173,8 @@ def workspace_item_to_dict(item):
         "layerId": item.layer_id,
         "associatedKml": item.associated_kml_id,
         "imageThumbnail": None,
-        "children_ids": [child.id for child in item.children],
-        "subItems": sub_items if sub_items else None
+        "children_ids": [child.id for child in item.children] if item.children else [],
+        "subItems": sub_items if sub_items else None  # Теперь здесь будут и GEE снимки!
     }
 
 

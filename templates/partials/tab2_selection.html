@@ -49,9 +49,8 @@
                 </template>
             </div>
             <button @click="openFindImagesModal()"
-                    :disabled="!state.selectedItem || (state.selectedItem.type !== 'area' && state.selectedItem.type !== 'polygon') || state.selectedItem.isSubItem"
-                    :disabled="!state.selectedItem || state.selectedItem.type !== 'area' || state.selectedItem.isSubItem"
-                    class="w-full mt-3 py-2 bg-amber-600 hover:bg-amber-700 disabled:bg-gray-400 text-white font-medium rounded-xl text-xs transition-colors">
+                :disabled="!state.selectedItem || (state.selectedItem.type !== 'area' && state.selectedItem.type !== 'polygon') || state.selectedItem.isSubItem"
+                class="w-full mt-3 py-2 bg-amber-600 hover:bg-amber-700 disabled:bg-gray-400 text-white font-medium rounded-xl text-xs transition-colors">
                 Найти снимки
             </button>
         </div>
