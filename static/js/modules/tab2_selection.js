@@ -138,15 +138,21 @@ export function getFilteredNN(state) {
 }
 
 export function selectNN(nn, state) {
-    if (state.selectedNN && state.selectedNN.id === nn.id) {
-        state.selectedNN = null;
-        return;
-    }
+    if (!nn) return;
+
+    // Сохраняем все необходимые поля, включая code_name для бэкенда
     state.selectedNN = {
         id: nn.id,
+        code_name: nn.code_name, // ← ДОБАВЛЯЕМ ЭТО ПОЛЕ
         name: nn.name,
-        type: nn.type
+        type: nn.type,
+        short_desc: nn.short_desc || '',
+        detail: nn.detail || '',
+        applicable_to: nn.applicable_to || ''
     };
+
+    // Если у вас есть лог выбора, можно оставить
+    console.log(`✅ Выбран алгоритм: ${nn.name} (code: ${nn.code_name})`);
 }
 
 export function determineResultViewType(state) {
@@ -192,7 +198,7 @@ export async function runAnalysis(state, callbacks) {
             params.season = state.activationParams.season;
 
         } else if (state.activationMethod === 'upload') {
-            // Способ 3: Загруженные файлы (пока передаем ID загруженных файлов)
+            // Способ 3: Загруженные файлы
             params.uploaded_file_ids = state.uploadedSnapshotIds;
         }
 
@@ -226,6 +232,9 @@ export async function runAnalysis(state, callbacks) {
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || "Ошибка сервера при создании задачи");
 
+        // 👇 КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Сбрасываем метод, чтобы модалка открылась при следующем запуске
+        state.activationMethod = null;
+
         const analysisId = data.analysis_id;
         if (window.showToast) window.showToast("⏳ Задача в очереди. Ожидание воркера...", "info");
 
@@ -240,7 +249,7 @@ export async function runAnalysis(state, callbacks) {
                     clearInterval(pollInterval);
                     state.isAnalysisRunning = false;
 
-                    // Восстанавливаем activeResult ПОЛНОСТЬЮ из данных, которые вернул сервер (Вариант А)
+                    // Восстанавливаем activeResult ПОЛНОСТЬЮ из данных, которые вернул сервер
                     const serverData = statusData.algorithm_data || {};
 
                     state.activeResult = {
@@ -250,8 +259,6 @@ export async function runAnalysis(state, callbacks) {
                         itemName: state.selectedItem.name,
                         nnName: state.selectedNN.name,
                         hasPolygon: state.selectedItem.type === 'area' || state.selectedItem.type === 'polygon',
-
-                        // Поля для UI (берем из БД, если сервер их сохранил, иначе дефолтные)
                         resultViewType: serverData.result_view_type || determineResultViewType(state),
                         polygonOpacity: serverData.polygon_opacity ?? 0.5,
                         aeroOverlayOpacity: serverData.aero_overlay_opacity ?? 0.6,
@@ -260,12 +267,8 @@ export async function runAnalysis(state, callbacks) {
                         rangeStart: serverData.range_start || 0,
                         rangeEnd: serverData.range_end || (serverData.snapshot_dates?.length - 1) || 0,
                         deepAnalysisEnabled: serverData.deep_analysis_enabled || false,
-
-                        // Реальные данные от алгоритма
                         metrics: serverData.metrics || {},
                         maskUrl: serverData.mask_url || null,
-
-                        // Сырые данные для возможного повторного запуска из истории
                         algorithmData: serverData
                     };
 
@@ -295,6 +298,8 @@ export async function runAnalysis(state, callbacks) {
 
     } catch (error) {
         state.isAnalysisRunning = false;
+        // 👇 Сбрасываем и при ошибке, чтобы можно было попробовать снова
+        state.activationMethod = null;
         console.error("Критическая ошибка запуска анализа:", error);
         if (window.showToast) window.showToast(error.message, "error");
     }

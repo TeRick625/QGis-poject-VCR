@@ -3,32 +3,10 @@ import ee
 import numpy as np
 import rasterio
 from datetime import datetime
+from gee_analysis import init_earth_engine
 
 OUTPUT_DIR = "static/results/satellite"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
-
-
-# =========================
-# ИНИЦИАЛИЗАЦИЯ GEE (из ноутбука)
-# =========================
-def init_earth_engine():
-    """Автоматическая авторизация в Google Earth Engine"""
-    try:
-        ee.Initialize()
-        return True
-    except Exception as e:
-        print(f"Ошибка инициализации GEE: {e}")
-        key_path = "ee_key.json"
-        if not os.path.exists(key_path):
-            print(f"Файл ключа {key_path} не найден")
-            return False
-        try:
-            credentials = ee.ServiceAccountCredentials(None, key_path)
-            ee.Initialize(credentials)
-            return True
-        except Exception as e2:
-            print(f"Ошибка авторизации через ключ: {e2}")
-            return False
 
 
 # =========================
@@ -100,7 +78,7 @@ def run_satellite_analysis(polygon_coords: list, context: dict, analysis_id: int
             images_to_process.append(img)
         print(f"[Alg2] Используется {len(images_to_process)} найденных снимков")
 
-    # === СЦЕНАРИЙ 2: Фоллбэк - самостоятельный поиск в GEE ===
+        # === СЦЕНАРИЙ 2: Фоллбэк - самостоятельный поиск в GEE ===
     else:
         params = context.get('search_params', {})
         date_start = params.get('date_start', '2023-01-01')
@@ -113,10 +91,18 @@ def run_satellite_analysis(polygon_coords: list, context: dict, analysis_id: int
             .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', max_cloud)) \
             .sort('system:time_start', True)
 
-        # Берем первые 5 подходящих снимков
         image_list = collection.limit(5).toList(5)
-        images_to_process = [ee.Image(image_list.get(i)) for i in range(5)]
-        print(f"[Alg2] Найдено {len(images_to_process)} снимков по параметрам")
+
+        # 👇 БЕЗОПАСНАЯ ПРОВЕРКА: узнаем реальный размер списка в GEE
+        list_size = image_list.size().getInfo()
+        if list_size == 0:
+            raise ValueError(
+                "В архиве GEE нет подходящих кадров по заданным параметрам (проверьте даты или облачность).")
+
+        print(f"[Alg2] Найдено {list_size} снимков по параметрам")
+
+        # Берем ровно столько, сколько нашел GEE (не больше 5)
+        images_to_process = [ee.Image(image_list.get(i)) for i in range(list_size)]
 
     if not images_to_process:
         raise ValueError("Нет данных для анализа (снимки не найдены).")

@@ -67,19 +67,43 @@ export async function addWorkspaceItem(state, file) {
         console.warn('Неподдерживаемый формат:', file.name);
         return null;
     }
-    let polygonCoords = null;
-    if (type === 'polygon' && format === 'kml')
-        polygonCoords = await parseKmlCoordinates(file);
-    else if (type === 'satellite' && format === 'geotiff')
-        polygonCoords = await extractSatelliteBounds(file);
 
-    // Проверяем, что координаты корректны перед добавлением
-    if (polygonCoords && (!Array.isArray(polygonCoords) || polygonCoords.length < 3)) {
-        console.error('Некорректные координаты для файла:', file.name, polygonCoords);
-        return null;
+    let polygonCoords = null;
+    if (type === 'polygon' && format === 'kml') {
+        polygonCoords = await parseKmlCoordinates(file);
+    } else if (type === 'satellite' && format === 'geotiff') {
+        polygonCoords = await extractSatelliteBounds(file);
+    }
+
+    // === КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Сначала загружаем сам файл на сервер ===
+    let sourceFilePath = null;
+    if (type === 'aero' || type === 'satellite') {
+        const formData = new FormData();
+        formData.append('file', file);
+        try {
+            const uploadRes = await fetch('/api/upload_file', {
+                method: 'POST',
+                body: formData
+            });
+            const uploadData = await uploadRes.json();
+            if (uploadData.success) {
+                sourceFilePath = uploadData.source_file;
+            } else {
+                console.error("Ошибка загрузки файла на сервер:", uploadData.error);
+                if (window.showToast) window.showToast(`Ошибка загрузки ${file.name}`, "error");
+                return null;
+            }
+        } catch (err) {
+            console.error("Сетевая ошибка загрузки файла:", err);
+            return null;
+        }
     }
 
     const newItem = createWorkspaceItemObject(file, type, format, polygonCoords);
+
+    // === ПОДМЕНА: Вместо объекта File кладем путь, который вернул сервер ===
+    newItem.sourceFile = sourceFilePath;
+
     state.workspaceItems.push(newItem);
 
     if (window.userRole && window.userRole !== 'guest') {
@@ -176,10 +200,41 @@ export async function addDrawnPolygonToWorkspace(state, coords, layer) {
 
 // Новая функция для добавления аэро+KML с серверной связью
 export async function addAeroWithKml(state, aeroFile, kmlFile) {
-    // Создаём временные объекты
+    // === ШАГ 0: ЗАГРУЗКА ФИЗИЧЕСКИХ ФАЙЛОВ НА СЕРВЕР ===
+    // Функция-хелпер для загрузки одного файла
+    const uploadFileToServer = async (file) => {
+        const formData = new FormData();
+        formData.append('file', file);
+        const res = await fetch('/api/upload_file', { method: 'POST', body: formData });
+        const data = await res.json();
+        if (data.success) return data.source_file;
+        throw new Error(`Ошибка загрузки файла ${file.name}: ${data.error}`);
+    };
+
+    let aeroSourcePath = null;
+    let kmlSourcePath = null;
+
+    try {
+        // Загружаем оба файла на сервер параллельно
+        [aeroSourcePath, kmlSourcePath] = await Promise.all([
+            uploadFileToServer(aeroFile),
+            uploadFileToServer(kmlFile)
+        ]);
+    } catch (err) {
+        console.error("Ошибка загрузки файлов аэро+KML:", err);
+        if (window.showToast) window.showToast(err.message, "error");
+        return; // Прерываем выполнение, если файлы не загрузились
+    }
+
+    // === ШАГ 1: СОЗДАНИЕ ОБЪЕКТОВ И ПРИСВОЕНИЕ ПУТЕЙ ===
     const aeroItem = createWorkspaceItemObject(aeroFile, 'aero', aeroFile.name.split('.').pop().toLowerCase(), null);
     const kmlItem = createWorkspaceItemObject(kmlFile, 'polygon', 'kml', await parseKmlCoordinates(kmlFile));
 
+    // 👇 КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Подменяем объекты File на реальные пути с сервера
+    aeroItem.sourceFile = aeroSourcePath;
+    kmlItem.sourceFile = kmlSourcePath;
+
+    // === ШАГ 2: СОХРАНЕНИЕ МЕТАДАННЫХ В БД ===
     // 1. Сохраняем KML на сервер (пока без родителя)
     let kmlId = kmlItem.id;
     if (window.userRole && window.userRole !== 'guest') {
@@ -202,13 +257,14 @@ export async function addAeroWithKml(state, aeroFile, kmlFile) {
     }
     aeroItem.id = aeroId;
 
+    // === ШАГ 3: СВЯЗЫВАНИЕ И ЛОКАЛЬНЫЙ СТЕЙТ ===
     // 3. Устанавливаем связь родитель-потомок на сервере
     await linkItems(aeroId, kmlId);
 
     // 4. Формируем локальный стейт:
-    //    - добавляем KML в общий массив
-    //    - у аэро проставляем children_ids
-    //    - добавляем аэро в массив
+    // - добавляем KML в общий массив
+    // - у аэро проставляем children_ids
+    // - добавляем аэро в массив
     if (!state.workspaceItems.find(i => i.id === kmlId)) {
         state.workspaceItems.push(kmlItem);
     }

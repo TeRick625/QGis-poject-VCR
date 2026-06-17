@@ -51,36 +51,50 @@ def init_db():
 
 def seed_neural_networks():
     with app.app_context():
-        # Проверяем, есть ли уже записи, чтобы не дублировать их при каждом перезапуске
-        if NeuralNetwork.query.count() == 0:
-            models = [
-                NeuralNetwork(
-                    name="Анализ спутниковых снимков (GEE)",
-                    code_name="gee_satellite_index",
-                    short_desc="Анализ вегетационных индексов (NDVI, NDRE) на основе мультивременных снимков Sentinel-2.",
-                    type="satellite",
-                    applicable_to="polygon",
-                    detail="Использует Google Earth Engine для расчета усыхания кроны по разностям индексов за разные периоды.",
-                    is_active=True
-                ),
-                NeuralNetwork(
-                    name="Сегментация крон деревьев (U-Net)",
-                    code_name="pytorch_tree_unet",
-                    short_desc="Поиск и сегментация отдельных крон деревьев по высокодетальным аэрофотоснимкам.",
-                    type="aero",
-                    applicable_to="aero",
-                    detail="Использует сверточную нейросеть U-Net на PyTorch для выделения границ деревьев и оценки их состояния.",
-                    is_active=True
-                )
-            ]
-            db.session.add_all(models)
-            db.session.commit()
-            print("✅ Базовые алгоритмы успешно добавлены в таблицу neural_networks.")
+        # ПРИНУДИТЕЛЬНО очищаем старые данные, чтобы избежать конфликтов
+        NeuralNetwork.query.delete()
+        db.session.commit()
+
+        # Добавляем ровно те алгоритмы, которые ожидает фронтенд (store.js) и воркер (worker.py)
+        models = [
+            NeuralNetwork(
+                name="Многодатный анализ изменений",
+                code_name="satellite_multi",
+                short_desc="Сравнение серии снимков Sentinel-2 во времени",
+                detail="Анализирует архивные снимки за выбранный период. Строит композитную маску усыхания.",
+                type="multidate",
+                applicable_to="polygon",
+                is_active=True
+            ),
+            NeuralNetwork(
+                name="Спутниковый анализ (одиночный)",
+                code_name="satellite_single",
+                short_desc="Построение маски по одному снимку Sentinel-2",
+                detail="Рассчитывает NDVI для обнаружения зон усыхания на основе одного актуального снимка.",
+                type="satellite",
+                applicable_to="polygon",
+                is_active=True
+            ),
+            NeuralNetwork(
+                name="Аэрофото анализ (UNet)",
+                code_name="aerial_segment",
+                short_desc="Нейросетевая сегментация крон деревьев",
+                detail="Использует модель UNet для точного выделения крон на аэрофотоснимках.",
+                type="aero",
+                applicable_to="aero",
+                is_active=True
+            )
+        ]
+
+        db.session.add_all(models)
+        db.session.commit()
+        print("✅ Алгоритмы успешно синхронизированы с базой данных (старые удалены).")
 
 
 # Вызываем функции инициализации (можно раскомментировать на один запуск)
-# init_db()
-# seed_neural_networks()
+#init_db()
+#seed_neural_networks()
+
 
 print("🔄 Проверка подключения к Google Earth Engine...")
 init_earth_engine()
@@ -337,6 +351,32 @@ def search_satellite_images():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/api/upload_file", methods=["POST"])
+def upload_file():
+    if "user" not in session:
+        return jsonify({"error": "Not logged in"}), 401
+
+    if 'file' not in request.files:
+        return jsonify({"error": "No file part"}), 400
+
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({"error": "No selected file"}), 400
+
+    if file:
+        user_id = session["user"]["id"]
+        filename = secure_filename(file.filename)
+        # Уникальное имя, чтобы файлы разных юзеров или повторные загрузки не перетирались
+        unique_filename = f"{user_id}_{int(datetime.now().timestamp() * 1000)}_{filename}"
+        filepath = os.path.join(app.config["UPLOAD_FOLDER"], unique_filename)
+        file.save(filepath)
+
+        return jsonify({
+            "success": True,
+            "source_file": unique_filename,  # Относительный путь внутри папки uploads
+            "original_name": filename
+        })
+
 @app.route("/api/workspace", methods=["GET", "POST"])
 def workspace():
     if "user" not in session:
@@ -432,6 +472,8 @@ def workspace():
                             elif isinstance(coords[0], list):
                                 # Simple array: [[lng,lat],...] -> [[lat,lng],...]
                                 coords = [[c[1], c[0]] for c in coords]
+        # 👇 ДОБАВЛЯЕМ ЭТО:
+        source_file = data.get("sourceFile")
 
         new_item = WorkspaceItem(
             user_id=user_id,
@@ -441,8 +483,10 @@ def workspace():
             polygon_coords=coords,
             visible_on_map=visible,
             layer_id=layer_id,
-            associated_kml_id=associated_kml
+            associated_kml_id=associated_kml,
+            source_file=source_file  # 👇 ДОБАВЛЯЕМ ЭТО
         )
+
         db.session.add(new_item)
         db.session.flush()
 
@@ -613,45 +657,48 @@ def link_items(parent_id, child_id):
 
 @app.route("/api/analysis/launch", methods=["POST"])
 def launch_analysis():
-    if "user_id" not in session:
+    if "user" not in session:
         return jsonify({"error": "Пользователь не авторизован"}), 401
 
     data = request.get_json() or {}
+    input_item_id = data.get("input_item_id")
+    model_code = data.get("model_code")
+    ui_params = data.get("params", {})
 
-    # 1. Считываем параметры из запроса фронтенда
-    input_item_id = data.get("input_item_id")  # ID полигона или загруженного файла из workspace_items
-    model_code = data.get("model_code")  # 'gee_satellite_index' или 'pytorch_tree_unet'
-    ui_params = data.get("params", {})  # Специфичные настройки из модалки (даты, облачность и т.д.)
+    current_user_id = session["user"]["id"]
 
-    # 2. Проверяем, существует ли исходный объект в рабочей области пользователя
-    input_item = WorkspaceItem.query.filter_by(id=input_item_id, user_id=session["user_id"]).first()
+    input_item = WorkspaceItem.query.filter_by(id=input_item_id, user_id=current_user_id).first()
     if not input_item:
         return jsonify({"error": "Исходный объект для анализа не найден в вашей рабочей области"}), 404
 
-    # 3. Ищем выбранный алгоритм в базе
     algo = NeuralNetwork.query.filter_by(code_name=model_code, is_active=True).first()
     if not algo:
         return jsonify({"error": f"Алгоритм '{model_code}' не найден или деактивирован"}), 400
 
     try:
-        # 4. Создаем запись об анализе в состоянии 'pending'
-        # Сюда мы сохраняем все конфигурации, которые ты закладывал в модель Analysis
+        # 👇 КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ 1 👇
+        # Воркер (worker.py) ищет input_item_id и model_code внутри ui_configured_parameters.
+        # Мы должны явно положить их туда перед сохранением в БД!
+        ui_params["input_item_id"] = input_item.id
+        ui_params["model_code"] = algo.code_name
+
         new_analysis = Analysis(
-            user_id=session["user_id"],
+            user_id=current_user_id,
             neural_network_id=algo.id,
             item_name=f"Анализ: {input_item.name} ({algo.name})",
             status="pending",
             has_polygon=(input_item.type == "polygon"),
             result_view_type=algo.type,
-            snapshot_dates=ui_params.get("dates", []),  # Сохраняем переданные даты, если есть
-            algorithm_data={"ui_configured_parameters": ui_params}  # Сохраняем сырые параметры в JSON на будущее
+            snapshot_dates=ui_params.get("dates", []),
+            algorithm_data={"ui_configured_parameters": ui_params}  # Теперь внутри есть нужные ID
         )
-
         db.session.add(new_analysis)
-        db.session.commit()
 
-        # На следующем этапе здесь появится вызов фонового скрипта!
-        # Решение тяжелых задач будет запускаться тут, не подвешивая Flask.
+        # 👇 КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ 2 👇
+        # Связываем анализ с объектом через Many-to-Many (таблица analysis_items)
+        new_analysis.items.append(input_item)
+
+        db.session.commit()
 
         return jsonify({
             "success": True,
@@ -659,14 +706,12 @@ def launch_analysis():
             "analysis_id": new_analysis.id,
             "status": new_analysis.status
         })
-
     except Exception as e:
         db.session.rollback()
         return jsonify({"error": f"Ошибка при создании задачи: {str(e)}"}), 500
 
 
 # ====================== API: ПРОФИЛЬ И ИСТОРИЯ ======================
-
 @app.route("/api/profile", methods=["GET"])
 def get_profile():
     if "user" not in session:

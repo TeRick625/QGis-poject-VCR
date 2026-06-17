@@ -96,25 +96,36 @@ def run_aerial_analysis(aero_file_path: str, kml_coords: list = None, analysis_i
     :param analysis_id: ID задачи для именования выходных файлов.
     :return: dict с метриками и путем к маске.
     """
+
+    # 🛡️ ЗАЩИТА ОТ None
+    if not aero_file_path:
+        raise ValueError("В алгоритм не передан путь к файлу (aero_file_path is None).")
+
     print(f"[Alg1] Запуск анализа для файла: {aero_file_path}")
 
     if not os.path.exists(aero_file_path):
         raise FileNotFoundError(f"Файл аэрофотоснимка не найден: {aero_file_path}")
 
     # 1. Загрузка изображения
+    print(f"[Alg1] Чтение файла: {aero_file_path}")
     if aero_file_path.lower().endswith(('.tif', '.tiff')):
         with rasterio.open(aero_file_path) as src:
-            image = src.read()[:3]  # Берем только 3 канала (RGB)
-            image = np.moveaxis(image, 0, -1)  # HWC формат
+            image = src.read()[:3]
+            image = np.moveaxis(image, 0, -1)
             transform = src.transform
             crs = src.crs
+            print(f"[Alg1] ✅ GeoTIFF загружен. Есть геопривязка (transform).")
     else:
         image = cv2.imread(aero_file_path)
+        if image is None:
+            raise ValueError(f"OpenCV не смог прочитать файл. Возможно, путь неверный или файл битый: {aero_file_path}")
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        transform = None
+        transform = None  # Обычные JPG/PNG не имеют геопривязки
+        crs = None
+        print(f"[Alg1] ⚠️ Загружен обычный JPG/PNG. Геопривязка (transform) отсутствует.")
 
     h, w = image.shape[:2]
-    print(f"[Alg1] Размер изображения: {w}x{h}")
+    print(f"[Alg1] Размер изображения: {w}x{h} пикселей")
 
     # 2. Подготовка к инференсу модели
     DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
@@ -122,7 +133,7 @@ def run_aerial_analysis(aero_file_path: str, kml_coords: list = None, analysis_i
 
     # Загрузка модели (если есть обученные веса)
     model = UNet(n_classes=3).to(DEVICE)
-    model_path = "algorithms/forest_unet.pth"  # Путь к весам модели
+    model_path = os.path.join(os.path.dirname(__file__), "forest_unet.pth")
 
     if os.path.exists(model_path):
         model.load_state_dict(torch.load(model_path, map_location=DEVICE))
@@ -147,29 +158,47 @@ def run_aerial_analysis(aero_file_path: str, kml_coords: list = None, analysis_i
     mask = refine_mask(pred)
     print(f"[Alg1] Маска уточнена")
 
-    # 5. Если есть KML (полигон), обрезаем маску и считаем точную статистику
+    # 5. Обрезка по KML и статистика
     stats = {"total_pixels": int(h * w), "drying_pixels": 0, "drying_percent": 0.0}
 
+    # ПРОВЕРКА: Можем ли мы обрезать по KML?
     if kml_coords and transform:
-        # Создаем геометрическую маску из координат полигона
-        poly_mask = geometry_mask(
-            [kml_coords],
-            out_shape=(h, w),
-            transform=transform,
-            invert=True
-        )
-        # Применяем полигон к маске сегментации
-        mask = np.where(poly_mask, mask, 0)
+        print(f"[Alg1] 🎯 Обрезаем маску по KML-полигону...")
+        try:
+            # rasterio ожидает координаты в формате GeoJSON [[[lng, lat], ...]]
+            # Если твой фронтенд отдает [lat, lng], здесь может потребоваться инверсия.
+            # Но пока оставим как есть, предполагая, что в БД уже правильный формат.
+            poly_mask = geometry_mask(
+                [kml_coords],
+                out_shape=(h, w),
+                transform=transform,
+                invert=True
+            )
+            mask = np.where(poly_mask, mask, 0)
 
-        # Считаем статистику только внутри полигона
-        total_poly_pixels = np.sum(poly_mask)
-        drying_pixels = np.sum((mask == 2) & poly_mask)  # Класс 2 - усыхание
+            total_poly_pixels = np.sum(poly_mask)
+            drying_pixels = np.sum((mask == 2) & poly_mask)
+            stats["total_pixels"] = int(total_poly_pixels)
+            stats["drying_pixels"] = int(drying_pixels)
+            stats["drying_percent"] = round((drying_pixels / total_poly_pixels) * 100,
+                                            2) if total_poly_pixels > 0 else 0.0
+            print(f"[Alg1] ✅ Статистика посчитана ТОЛЬКО внутри полигона. Усыхание: {stats['drying_percent']}%")
+        except Exception as e:
+            print(f"[Alg1] ❌ Ошибка при наложении KML-маски: {e}. Переходим к анализу всей площади.")
+            drying_pixels = np.sum(mask == 2)
+            stats["drying_pixels"] = int(drying_pixels)
+            stats["drying_percent"] = round((drying_pixels / (h * w)) * 100, 2)
 
-        stats["total_pixels"] = int(total_poly_pixels)
+    elif kml_coords and not transform:
+        print(
+            f"[Alg1] ⚠️ ВНИМАНИЕ: Есть KML, но изображение (JPG) не имеет геопривязки. Наложить координаты невозможно.")
+        print(f"[Alg1] ℹ️ Выполняется анализ ВСЕЙ площади изображения.")
+        drying_pixels = np.sum(mask == 2)
         stats["drying_pixels"] = int(drying_pixels)
-        stats["drying_percent"] = round((drying_pixels / total_poly_pixels) * 100, 2) if total_poly_pixels > 0 else 0.0
+        stats["drying_percent"] = round((drying_pixels / (h * w)) * 100, 2)
     else:
-        # Если полигона нет, считаем по всему снимку
+        # KML нет вообще
+        print(f"[Alg1] ℹ️ KML не предоставлен. Анализ всей площади изображения.")
         drying_pixels = np.sum(mask == 2)
         stats["drying_pixels"] = int(drying_pixels)
         stats["drying_percent"] = round((drying_pixels / (h * w)) * 100, 2)
