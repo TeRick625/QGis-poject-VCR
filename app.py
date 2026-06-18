@@ -1,4 +1,5 @@
 import os
+import threading
 from pathlib import Path
 from datetime import datetime, timedelta
 from io import BytesIO
@@ -436,6 +437,9 @@ def workspace():
         associated_kml = data.get("associatedKml", None)
         parent_id = data.get("parent_id")
 
+        # 👇 ДОБАВЛЯЕМ ЭТО:
+        source_file = data.get("sourceFile")
+
         if item_type not in ("polygon", "satellite", "aero"):
             return jsonify({"error": "Invalid type"}), 400
 
@@ -472,8 +476,7 @@ def workspace():
                             elif isinstance(coords[0], list):
                                 # Simple array: [[lng,lat],...] -> [[lat,lng],...]
                                 coords = [[c[1], c[0]] for c in coords]
-        # 👇 ДОБАВЛЯЕМ ЭТО:
-        source_file = data.get("sourceFile")
+
 
         new_item = WorkspaceItem(
             user_id=user_id,
@@ -484,7 +487,7 @@ def workspace():
             visible_on_map=visible,
             layer_id=layer_id,
             associated_kml_id=associated_kml,
-            source_file=source_file  # 👇 ДОБАВЛЯЕМ ЭТО
+            source_file=source_file  # 👇 ТЕПЕРЬ ПУТЬ СОХРАНЯЕТСЯ В БД
         )
 
         db.session.add(new_item)
@@ -658,58 +661,64 @@ def link_items(parent_id, child_id):
 @app.route("/api/analysis/launch", methods=["POST"])
 def launch_analysis():
     if "user" not in session:
-        return jsonify({"error": "Пользователь не авторизован"}), 401
+        return jsonify({"error": "Not logged in"}), 401
 
-    data = request.get_json() or {}
-    input_item_id = data.get("input_item_id")
-    model_code = data.get("model_code")
-    ui_params = data.get("params", {})
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "No data"}), 400
 
     current_user_id = session["user"]["id"]
+    input_item_id = data.get("input_item_id")
+    model_code = data.get("model_code") # Например, 'aerial_segment', 'satellite_multi'
+    ui_params = data.get("ui_params", {})
+
+    if not input_item_id or not model_code:
+        return jsonify({"error": "Не передан ID объекта или код алгоритма"}), 400
 
     input_item = WorkspaceItem.query.filter_by(id=input_item_id, user_id=current_user_id).first()
     if not input_item:
-        return jsonify({"error": "Исходный объект для анализа не найден в вашей рабочей области"}), 404
+        return jsonify({"error": "Исходный объект для анализа не найден"}), 404
 
     algo = NeuralNetwork.query.filter_by(code_name=model_code, is_active=True).first()
     if not algo:
-        return jsonify({"error": f"Алгоритм '{model_code}' не найден или деактивирован"}), 400
+        return jsonify({"error": f"Алгоритм '{model_code}' не найден"}), 400
 
-    try:
-        # 👇 КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ 1 👇
-        # Воркер (worker.py) ищет input_item_id и model_code внутри ui_configured_parameters.
-        # Мы должны явно положить их туда перед сохранением в БД!
-        ui_params["input_item_id"] = input_item.id
-        ui_params["model_code"] = algo.code_name
+    # Явно кладем ID и код в параметры, чтобы воркер их увидел
+    ui_params["input_item_id"] = input_item.id
+    ui_params["model_code"] = algo.code_name
 
-        new_analysis = Analysis(
-            user_id=current_user_id,
-            neural_network_id=algo.id,
-            item_name=f"Анализ: {input_item.name} ({algo.name})",
-            status="pending",
-            has_polygon=(input_item.type == "polygon"),
-            result_view_type=algo.type,
-            snapshot_dates=ui_params.get("dates", []),
-            algorithm_data={"ui_configured_parameters": ui_params}  # Теперь внутри есть нужные ID
-        )
-        db.session.add(new_analysis)
+    # Создаем запись об анализе
+    new_analysis = Analysis(
+        user_id=current_user_id,
+        neural_network_id=algo.id,
+        item_name=f"Анализ: {input_item.name} ({algo.name})",
+        status="pending",
+        has_polygon=(input_item.type == "polygon"),
+        result_view_type=algo.type,
+        snapshot_dates=ui_params.get("dates", []),
+        algorithm_data={"ui_configured_parameters": ui_params, "result_files": {}}
+    )
+    db.session.add(new_analysis)
+    new_analysis.items.append(input_item)
+    db.session.commit()
 
-        # 👇 КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ 2 👇
-        # Связываем анализ с объектом через Many-to-Many (таблица analysis_items)
-        new_analysis.items.append(input_item)
+    # 🚀 КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Запуск в фоновом потоке!
+    # Это мгновенно вернет ответ фронту, а анализ пойдет в фоне.
+    # Мы передаем ID задачи и создаем новый контекст приложения внутри воркера.
+    thread = threading.Thread(target=execute_analysis_task_background, args=(new_analysis.id,))
+    thread.start()
 
-        db.session.commit()
+    return jsonify({
+        "success": True,
+        "message": "Задача создана и передана в фоновую обработку",
+        "analysis_id": new_analysis.id
+    })
 
-        return jsonify({
-            "success": True,
-            "message": "Задача на анализ успешно создана и добавлена в очередь",
-            "analysis_id": new_analysis.id,
-            "status": new_analysis.status
-        })
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({"error": f"Ошибка при создании задачи: {str(e)}"}), 500
-
+# Вспомогательная функция для безопасного запуска в потоке
+def execute_analysis_task_background(analysis_id):
+    with app.app_context():
+        from worker import execute_task
+        execute_task(analysis_id)
 
 # ====================== API: ПРОФИЛЬ И ИСТОРИЯ ======================
 @app.route("/api/profile", methods=["GET"])

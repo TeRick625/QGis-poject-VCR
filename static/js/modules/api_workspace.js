@@ -25,7 +25,8 @@ export async function saveWorkspaceItem(item) {
             visibleOnMap: item.visibleOnMap,
             layerId: item.layerId,
             associatedKml: item.associatedKml || null,
-            parent_id: item.parent_id || null        // ← теперь передаём parent_id
+            parent_id: item.parent_id || null,
+            sourceFile: item.sourceFile || null // 🆕 КРИТИЧЕСКОЕ ДОПОЛНЕНИЕ: Передаем путь к файлу на сервере!
         };
 
         const response = await fetch('/api/workspace', {

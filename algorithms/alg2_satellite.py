@@ -1,7 +1,9 @@
+# algorithms/alg2_satellite.py
 import os
+import json
+import re
 import ee
-import numpy as np
-import rasterio
+import urllib.request
 from datetime import datetime
 from gee_analysis import init_earth_engine
 
@@ -10,168 +12,208 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 
 # =========================
-# ФУНКЦИИ ОБРАБОТКИ (из ноутбука)
+# ФУНКЦИИ ИЗ НОУТБУКА
 # =========================
-def mask_clouds_and_shadows(image):
-    """Маскирование облаков и теней для Sentinel-2"""
-    qa = image.select('QA60')
-    cloud_bit_mask = 1 << 10
-    cirrus_bit_mask = 1 << 11
-    mask = qa.bitwiseAnd(cloud_bit_mask).eq(0).And(qa.bitwiseAnd(cirrus_bit_mask).eq(0))
-    return image.updateMask(mask)
+def add_indices(img):
+    """Расчет NDVI и NDMI (индекс влажности)"""
+    ndvi = img.normalizedDifference(['B8', 'B4']).rename('NDVI')
+    ndmi = img.normalizedDifference(['B8', 'B11']).rename('NDMI')
+    return img.addBands([ndvi, ndmi])
 
 
-def calculate_ndvi(image):
-    """Расчет NDVI (Normalized Difference Vegetation Index)"""
-    nir = image.select('B8')
-    red = image.select('B4')
-    ndvi = nir.subtract(red).divide(nir.add(red)).rename('NDVI')
-    return image.addBands(ndvi)
+def get_year_from_id(space_id):
+    """Извлекает год из ID снимка GEE (например, 20230414T... -> 2023)"""
+    match = re.search(r'(\d{4})\d{4}T', space_id)
+    return int(match.group(1)) if match else None
 
 
-def detect_decline(ndvi_image, threshold=0.3):
-    """Обнаружение усыхания по пороговому значению NDVI"""
-    decline = ndvi_image.select('NDVI').lt(threshold)
-    return decline.rename('decline')
+def normalize_coords_for_gee(coords):
+    """Приводит координаты к формату GEE [[[lng, lat], ...]]"""
+    if isinstance(coords, str): coords = json.loads(coords)
+    ring = coords[0] if isinstance(coords[0][0], list) else coords
+    first_pt = ring[0]
+    if abs(first_pt[0]) <= 90 and abs(first_pt[1]) > 90:
+        ring = [[pt[1], pt[0]] for pt in ring]
+    return [ring]
 
 
 # =========================
 # ОСНОВНАЯ ФУНКЦИЯ АЛГОРИТМА
 # =========================
 def run_satellite_analysis(polygon_coords: list, context: dict, analysis_id: int = None):
-    """
-    Алг2: Построение маски усыхания по спутниковым снимкам.
-
-    :param polygon_coords: Координаты полигона [[[lat, lng], ...]].
-    :param context: Словарь с параметрами:
-        - 'gee_image_ids': ['ID1', 'ID2'] (Найденные сайтом снимки)
-        - 'search_params': {'date_start': '...', 'date_end': '...', 'max_cloud': 20} (Фоллбэк)
-    :param analysis_id: ID задачи.
-    """
-    print(f"[Alg2] Запуск анализа. Контекст: {list(context.keys())}")
+    print(f"[Alg2] 🛰 Запуск продвинутого GEE-анализа (Тренды + NDMI)...")
 
     if not init_earth_engine():
-        raise Exception("Не удалось подключиться к GEE")
+        raise Exception("Не удалось подключиться к Google Earth Engine")
 
-    # Нормализация координат для GEE (ожидается [lng, lat])
-    if isinstance(polygon_coords, str):
-        import json
-        polygon_coords = json.loads(polygon_coords)
+    gee_coords = normalize_coords_for_gee(polygon_coords)
+    roi = ee.Geometry.Polygon(gee_coords)
 
-    # Проверка порядка координат
-    if len(polygon_coords) > 0 and len(polygon_coords[0]) > 0:
-        first_coord = polygon_coords[0][0] if isinstance(polygon_coords[0][0], list) else polygon_coords[0]
-        if abs(first_coord[0]) > 90 and abs(first_coord[1]) <= 90:
-            # Конвертируем из [lat, lng] в [lng, lat]
-            polygon_coords = [[c[1], c[0]] for c in polygon_coords]
+    gee_ids = context.get('gee_image_ids', [])
+    if not gee_ids:
+        raise ValueError("В контексте не найдено ID снимков.")
 
-    roi = ee.Geometry.Polygon(polygon_coords)
+    print(f"[Alg2] ✅ Загружаем {len(gee_ids)} снимков...")
+    images = [ee.Image(gid) for gid in gee_ids]
+    collection = ee.ImageCollection(images).map(add_indices)
 
-    images_to_process = []
-
-    # === СЦЕНАРИЙ 1: Использование найденных снимков из GEE ===
-    if 'gee_image_ids' in context and context['gee_image_ids']:
-        for space_id in context['gee_image_ids']:
-            # Очищаем ID от суффикса __kml_X, если он есть
-            clean_id = space_id.split('__')[0]
-            img = ee.Image(clean_id).clip(roi)
-            images_to_process.append(img)
-        print(f"[Alg2] Используется {len(images_to_process)} найденных снимков")
-
-        # === СЦЕНАРИЙ 2: Фоллбэк - самостоятельный поиск в GEE ===
-    else:
-        params = context.get('search_params', {})
-        date_start = params.get('date_start', '2023-01-01')
-        date_end = params.get('date_end', '2023-12-31')
-        max_cloud = params.get('max_cloud', 20)
-
-        collection = ee.ImageCollection('COPERNICUS/S2_SR_HARMONIZED') \
-            .filterBounds(roi) \
-            .filterDate(date_start, date_end) \
-            .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', max_cloud)) \
-            .sort('system:time_start', True)
-
-        image_list = collection.limit(5).toList(5)
-
-        # 👇 БЕЗОПАСНАЯ ПРОВЕРКА: узнаем реальный размер списка в GEE
-        list_size = image_list.size().getInfo()
-        if list_size == 0:
-            raise ValueError(
-                "В архиве GEE нет подходящих кадров по заданным параметрам (проверьте даты или облачность).")
-
-        print(f"[Alg2] Найдено {list_size} снимков по параметрам")
-
-        # Берем ровно столько, сколько нашел GEE (не больше 5)
-        images_to_process = [ee.Image(image_list.get(i)) for i in range(list_size)]
-
-    if not images_to_process:
-        raise ValueError("Нет данных для анализа (снимки не найдены).")
-
-    # 2. Обработка каждого снимка
-    decline_masks = []
-    for idx, img in enumerate(images_to_process):
-        print(f"[Alg2] Обработка снимка {idx + 1}/{len(images_to_process)}")
-
-        # Маскирование облаков
-        img_masked = mask_clouds_and_shadows(img)
-
-        # Расчет NDVI
-        img_ndvi = calculate_ndvi(img_masked)
-
-        # Обнаружение усыхания
-        decline = detect_decline(img_ndvi, threshold=0.3)
-        decline_masks.append(decline)
-
-    # 3. Агрегация результатов (медианная композитная маска)
-    if len(decline_masks) > 1:
-        # Создаем коллекцию и вычисляем медиану
-        decline_collection = ee.ImageCollection(decline_masks)
-        final_decline = decline_collection.median()
-    else:
-        final_decline = decline_masks[0]
-
-    # 4. Экспорт результата
     prefix = f"analysis_{analysis_id}" if analysis_id else "temp"
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    mask_filename = f"{prefix}_sat_mask_{timestamp}.png"
-    mask_path = os.path.join(OUTPUT_DIR, mask_filename)
 
-    # Экспорт маски из GEE в локальный файл
+    intermediate_masks = []
+
+    # ==========================================
+    # БЛОК 1: ПРОМЕЖУТОЧНЫЕ МАСКИ (МЕТОД БАЗОВОГО ГОДА + ФИЛЬТРАЦИЯ ШУМА)
+    # ==========================================
+    print(f"[Alg2] 📅 Генерируем логику динамики (Метод Базового года + Фильтрация шума)...")
+    # 🚨 КРИТИЧЕСКОЕ ДОПОЛНЕНИЕ: Явно извлекаем и сортируем годы из ID снимков
+    years = sorted(list(set(get_year_from_id(gid) for gid in gee_ids if get_year_from_id(gid))))
+
+    if not years:
+        raise ValueError("Не удалось определить годы для выбранных снимков. Проверьте ID снимков.")
+    # Определяем базовый год (самый первый в выборке) - наш эталон "здорового" леса
+    baseline_year = years[0]
+    baseline_ids = [gid for gid in gee_ids if get_year_from_id(gid) == baseline_year]
+    baseline_ndvi = ee.ImageCollection([ee.Image(gid) for gid in baseline_ids]).map(add_indices).select('NDVI').median()
+
+    for year in years:
+        year_ids = [gid for gid in gee_ids if get_year_from_id(gid) == year]
+        if not year_ids: continue
+
+        year_collection = ee.ImageCollection([ee.Image(gid) for gid in year_ids]).map(add_indices)
+        current_ndvi = year_collection.select('NDVI').median()
+
+        if year == baseline_year:
+            # Для базового года показываем только уже мертвые зоны (абсолютный жесткий порог)
+            decline_year = current_ndvi.lt(0.25).And(current_ndvi.gt(0))
+        else:
+            # Для остальных лет считаем ПАДЕНИЕ (Дельту) относительно базового года
+            delta = current_ndvi.subtract(baseline_ndvi)
+            # Если NDVI упал на 0.15 и более - это стресс/начало усыхания
+            decline_year = delta.lt(-0.15).And(current_ndvi.gt(0))
+
+        # 🔬 КРИТИЧЕСКАЯ ФИЛЬТРАЦИЯ ШУМА (чтобы точки не прыгали)
+        # Считаем размер связных зон и убираем те, что меньше 20 пикселей (шум/тени)
+        size = decline_year.connectedPixelCount(maxSize=256, eightConnected=True)
+        clean_decline = decline_year.updateMask(size.gte(20)).selfMask()
+
+        # Экспорт маски года (ЖЕЛТЫЙ цвет для динамики стресса)
+        year_mask_path = os.path.join(OUTPUT_DIR, f"{prefix}_sat_{year}_stress.png")
+        try:
+            url_year = clean_decline.getThumbURL({
+                'region': roi.getInfo(), 'dimensions': 1024, 'format': 'png',
+                'min': 0, 'max': 1, 'palette': ['FFFF00'], 'crs': 'EPSG:4326'
+            })
+            urllib.request.urlretrieve(url_year, year_mask_path)
+            if os.path.getsize(year_mask_path) > 0:
+                intermediate_masks.append({
+                    "date": str(year),
+                    "url": f"/{year_mask_path}",
+                    "source_id": f"stress_{year}"
+                })
+                print(f"[Alg2]   ✅ Маска стресса за {year} сохранена (шум отфильтрован).")
+        except Exception as e:
+            print(f"[Alg2]   ⚠️ Ошибка экспорта маски за {year}: {e}")
+    # ==========================================
+    # БЛОК 2: ИТОГОВАЯ МАСКА (ТРЕНД УСЫХАНИЯ)
+    # ==========================================
+    print(f"[Alg2] 📉 Считаем итоговый тренд усыхания (SensSlope)...")
+
+    if len(gee_ids) >= 3:
+        # Добавляем временную шкалу (в годах от 2020)
+        start_date = ee.Date('2020-01-01')
+
+        def add_time(img):
+            time_years = img.date().difference(start_date, 'year')
+            # Добавляем время как БАНД (слой), а не как метаданные!
+            # Reducer.sensSlope требует, чтобы и время, и индекс были слоями.
+            time_band = ee.Image.constant(time_years).rename('time').toFloat()
+            return img.addBands(time_band)  # ✅ Теперь это полноценный слой
+
+        collection_with_time = collection.map(add_time)
+
+        # Считаем наклон тренда (SensSlope) для NDVI и NDMI
+        trend_ndvi = collection_with_time.select(['time', 'NDVI']).reduce(ee.Reducer.sensSlope())
+        trend_ndmi = collection_with_time.select(['time', 'NDMI']).reduce(ee.Reducer.sensSlope())
+
+        ndvi_slope = trend_ndvi.select('slope')
+        ndmi_slope = trend_ndmi.select('slope')
+        mean_ndvi = collection_with_time.select('NDVI').mean()
+
+        # 🧬 ФОРМУЛА УСЫХАНИЯ ИЗ НОУТБУКА 🧬
+        # NDVI падает, NDMI падает (теряет влагу), средний NDVI низкий
+        drying = (ndvi_slope.lt(-0.002)
+                  .And(ndmi_slope.lt(-0.006))
+                  .And(mean_ndvi.lt(0.82))
+                  .And(ndvi_slope.lt(0)))
+
+        drying_mask = drying.selfMask().rename('drying').uint8()
+
+        # 🔬 ФИЛЬТРАЦИЯ ШУМА (Упрощённый надёжный вариант)
+        # Бинарная маска усыхания (один слой)
+        drying_mask = drying.selfMask().rename('drying').uint8()
+
+        # Считаем размер каждой связной зоны (один слой)
+        # connectedPixelCount считает количество пикселей в связных компонентах
+        size = drying_mask.connectedPixelCount(maxSize=256, eightConnected=True)
+
+        min_pixels = 15  # Убираем зоны меньше 15 пикселей (шум)
+
+        # Фильтруем: оставляем только зоны размером >= min_pixels
+        # updateMask применяет маску (один слой), rename переименовывает
+        clean_mask = drying_mask.updateMask(size.gte(min_pixels)).rename('drying_zone_clean')
+
+        final_export = clean_mask
+        mode = "gee_sens_slope_trend"
+        print(f"[Alg2] 🧬 Тренд рассчитан. Шум отфильтрован (min {min_pixels} px).")
+    else:
+        # Фоллбэк, если снимков мало (нет смысла считать тренд)
+        print(f"[Alg2] ⚠️ Снимков меньше 3, считаем простую медиану NDVI...")
+        median_ndvi = collection.select('NDVI').median()
+        final_export = median_ndvi.lt(0.3).And(median_ndvi.gt(0)).selfMask().uint8()
+        mode = "gee_simple_median"
+
+    # Экспорт итоговой маски (КРАСНЫЙ цвет для тренда)
+    final_mask_path = os.path.join(OUTPUT_DIR, f"{prefix}_sat_final_trend_{timestamp}.png")
     try:
-        url = final_decline.getThumbURL({
-            'region': roi,
-            'dimensions': 512,
-            'format': 'png',
-            'min': 0,
-            'max': 1
+        url_final = final_export.getThumbURL({
+            'region': roi.getInfo(), 'dimensions': 1024, 'format': 'png',
+            'min': 0, 'max': 1, 'palette': ['FF0000'], 'crs': 'EPSG:4326'
         })
-
-        # Скачиваем изображение
-        import urllib.request
-        urllib.request.urlretrieve(url, mask_path)
-        print(f"[Alg2] Маска экспортирована: {mask_path}")
-
+        urllib.request.urlretrieve(url_final, final_mask_path)
+        print(f"[Alg2] ✅ Итоговая маска тренда сохранена.")
     except Exception as e:
-        print(f"[Alg2] Ошибка экспорта из GEE: {e}")
-        # Создаем заглушку, если экспорт не удался
-        mask_array = np.random.choice([0, 1], size=(512, 512), p=[0.85, 0.15])
-        import cv2
-        mask_visual = (mask_array * 255).astype(np.uint8)
-        cv2.imwrite(mask_path, mask_visual)
+        print(f"[Alg2] ❌ Ошибка экспорта итоговой маски: {e}")
+        raise
 
-    # 5. Расчет статистики
-    # Для упрощения используем приблизительную оценку
-    total_area_ha = 125.0  # Можно рассчитать точнее через GEE
-    drying_percent = 14.5  # Можно рассчитать через reduceRegion
+    # ==========================================
+    # БЛОК 3: СТАТИСТИКА
+    # ==========================================
+    try:
+        stats = final_export.reduceRegion(
+            reducer=ee.Reducer.mean(), geometry=roi, scale=10, maxPixels=1e13, bestEffort=True
+        ).getInfo()
+        drying_percent = round(stats.get('drying_zone_clean', stats.get('drying', 0)) * 100, 2)
+    except:
+        drying_percent = 0.0
 
-    # 6. Возврат результата
+    try:
+        area_sq_m = roi.area().getInfo()
+        total_area_ha = round(area_sq_m / 10000, 2)
+    except:
+        total_area_ha = 0.0
+
+    drying_area_ha = round(total_area_ha * (drying_percent / 100), 2)
+
     return {
-        "mask_url": f"/{mask_path}",
+        "mask_url": f"/{final_mask_path}",  # Итоговый тренд (красный)
+        "intermediate_masks": intermediate_masks,  # Динамика по годам (желтые)
         "metrics": {
             "drying_percent": drying_percent,
             "total_area_ha": total_area_ha,
-            "drying_area_ha": round(total_area_ha * drying_percent / 100, 2),
-            "images_processed": len(images_to_process)
+            "drying_area_ha": drying_area_ha,
+            "images_processed": len(gee_ids),
+            "years_analyzed": len(years)
         },
-        "processing_mode": "gee_cloud"
+        "processing_mode": mode
     }
