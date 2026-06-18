@@ -267,18 +267,18 @@ def run_aerial_analysis(aero_file_path: str, kml_coords: list = None, analysis_i
         stats["drying_percent"] = round((drying_pixels / (h * w)) * 100, 2)
 
     # =========================
-    # ВИЗУАЛИЗАЦИЯ (ЦВЕТА ИЗ НОУТБУКА)
+    # ВИЗУАЛИЗАЦИЯ И СОХРАНЕНИЕ
     # =========================
     # BGR формат для OpenCV
-    COLOR_HEALTHY_BGR = (0, 255, 0)  # Зеленый
-    COLOR_INFECTED_BGR = (0, 255, 255)  # Желтый (в notebook был оранжевый/желтый для класса 2)
+    COLOR_HEALTHY_BGR = (0, 255, 0)
+    COLOR_INFECTED_BGR = (0, 255, 255)
 
-    # 1. Цветная маска (для сохранения как PNG)
+    # 1. Цветная маска
     mask_visual = np.zeros((h, w, 3), dtype=np.uint8)
     mask_visual[mask == 1] = COLOR_HEALTHY_BGR
     mask_visual[mask == 2] = COLOR_INFECTED_BGR
 
-    # 2. Overlay (наложение на оригинал)
+    # 2. Overlay
     mask_colored = np.zeros_like(original_image_bgr)
     mask_colored[mask == 1] = COLOR_HEALTHY_BGR
     mask_colored[mask == 2] = COLOR_INFECTED_BGR
@@ -291,18 +291,21 @@ def run_aerial_analysis(aero_file_path: str, kml_coords: list = None, analysis_i
     prefix = f"analysis_{analysis_id}" if analysis_id else "temp"
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
+    # 👇 НОВОЕ: Сохраняем ОРИГИНАЛ В ПАПКУ
+    original_path = os.path.join(OUTPUT_DIR, f"{prefix}_aerial_original_{timestamp}.jpg")
+    cv2.imwrite(original_path, original_image_bgr)
+
     mask_path = os.path.join(OUTPUT_DIR, f"{prefix}_aerial_mask_{timestamp}.png")
     cv2.imwrite(mask_path, mask_visual)
-
     heatmap_path = os.path.join(OUTPUT_DIR, f"{prefix}_aerial_heatmap_{timestamp}.png")
     cv2.imwrite(heatmap_path, heatmap)
-
     overlay_path = os.path.join(OUTPUT_DIR, f"{prefix}_aerial_overlay_{timestamp}.png")
     cv2.imwrite(overlay_path, overlay)
 
     print(f"[Alg1] 💾 Результаты сохранены. Усыхание: {stats['drying_percent']}%")
 
     return {
+        "original_url": f"/{original_path}",  # 👈 ТЕПЕРЬ ОН ТОЧНО ЕСТЬ
         "mask_url": f"/{mask_path}",
         "heatmap_url": f"/{heatmap_path}",
         "overlay_url": f"/{overlay_path}",

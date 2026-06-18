@@ -171,50 +171,32 @@ export function determineResultViewType(state) {
 export async function runAnalysis(state, callbacks) {
     if (!state.selectedItem || !state.selectedNN) return;
 
-    // === 1. ФОРМИРОВАНИЕ ПАРАМЕТРОВ ДЛЯ БЭКЕНДА ===
+    // 1. Формирование параметров
     let params = {};
     const nnType = state.selectedNN.type;
-
     if (nnType === 'multidate') {
-        // Если пользователь еще не выбрал способ активации, открываем модалку
         if (!state.activationMethod) {
             if (callbacks.openActivationModal) callbacks.openActivationModal();
             return;
         }
-
         if (state.activationMethod === 'found') {
-            // Способ 1: Уже найденные снимки
             params.dates = state.selectedImageIds.map(id => {
                 const found = state.foundImages.find(img => img.id === id);
                 return found ? found.date : null;
             }).filter(Boolean);
             params.image_ids = state.selectedImageIds;
-
         } else if (state.activationMethod === 'params') {
-            // Способ 2: Задать параметры (воркер сам их найдет через GEE)
             params.date_start = `${state.activationParams.yearFrom}-01-01`;
             params.date_end = `${state.activationParams.yearTo}-12-31`;
             params.max_cloud = state.activationParams.cloudMax;
-            params.season = state.activationParams.season;
-
-        } else if (state.activationMethod === 'upload') {
-            // Способ 3: Загруженные файлы
-            params.uploaded_file_ids = state.uploadedSnapshotIds;
         }
-
     } else if (nnType === 'satellite') {
         params.file_id = state.selectedItem.id;
-
     } else if (nnType === 'aero') {
         params.aero_id = state.selectedItem.id;
-        // Ищем связанный KML, если он есть
-        const aeroItem = state.workspaceItems.find(i => i.id === state.selectedItem.id);
-        if (aeroItem && aeroItem.associatedKml) {
-            params.kml_id = aeroItem.associatedKml.id;
-        }
     }
 
-    // === 2. ОТПРАВКА ЗАПРОСА НА СОЗДАНИЕ ЗАДАЧИ ===
+    // 2. Отправка запроса на сервер
     state.isAnalysisRunning = true;
     if (window.showToast) window.showToast("🚀 Отправка задачи на сервер...", "info");
 
@@ -224,81 +206,91 @@ export async function runAnalysis(state, callbacks) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 input_item_id: state.selectedItem.id,
-                model_code: state.selectedNN.code_name, // Передаем code_name!
+                model_code: state.selectedNN.code_name,
                 params: params
             })
         });
-
         const data = await response.json();
-        if (!response.ok) throw new Error(data.error || "Ошибка сервера при создании задачи");
+        if (!response.ok) throw new Error(data.error || "Ошибка сервера");
 
-        // 👇 КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Сбрасываем метод, чтобы модалка открылась при следующем запуске
         state.activationMethod = null;
-
         const analysisId = data.analysis_id;
         if (window.showToast) window.showToast("⏳ Задача в очереди. Ожидание воркера...", "info");
 
-        // === 3. ЗАПУСК ПОЛЛИНГА (ОПРОС СТАТУСА КАЖДЫЕ 2 СЕКУНДЫ) ===
+        // 👇 3. КРИТИЧЕСКИ ВАЖНО: Создаем "фантомную" запись СРАЗУ
+        const phantomResult = {
+            id: analysisId,
+            timestamp: new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }),
+            type: state.selectedNN.type,
+            itemName: state.selectedItem.name,
+            nnName: state.selectedNN.name,
+            status: 'running', // <-- ЭТО ЗАСТАВИТ ШАБЛОН ПОКАЗАТЬ СКЕЛЕТОН
+            hasPolygon: state.selectedItem.type === 'area' || state.selectedItem.type === 'polygon',
+            resultViewType: state.selectedNN.type,
+            polygonOpacity: 0.5,
+            aeroOverlayOpacity: 0.6,
+            snapshotDates: [],
+            snapshotIndex: 0,
+            rangeStart: 0,
+            rangeEnd: 0,
+            deepAnalysisEnabled: false,
+            metrics: {},
+            maskUrl: null,
+            algorithmData: {}
+        };
+
+        // Добавляем в начало истории и делаем активной
+        state.analysisHistory.unshift(phantomResult);
+        state.activeResult = phantomResult;
+        state.currentResultIndex = 0;
+
+        // 👇 4. МГНОВЕННО ПЕРЕКЛЮЧАЕМ ВКЛАДКУ НА РЕЗУЛЬТАТ (ОТРИСУЕТСЯ СКЕЛЕТОН)
+        if (callbacks.switchMode) callbacks.switchMode('result', state, callbacks);
+
+        // 👇 5. Запускаем поллинг, который будет ОБНОВЛЯТЬ эту фантомную запись в фоне
         const pollInterval = setInterval(async () => {
             try {
                 const statusRes = await fetch(`/api/analysis/${analysisId}/status`);
                 const statusData = await statusRes.json();
 
-                // --- СЦЕНАРИЙ А: АНАЛИЗ УСПЕШНО ЗАВЕРШЕН ---
                 if (statusData.status === 'completed') {
                     clearInterval(pollInterval);
                     state.isAnalysisRunning = false;
 
-                    // Восстанавливаем activeResult ПОЛНОСТЬЮ из данных, которые вернул сервер
-                    const serverData = statusData.algorithm_data || {};
+                    // Находим нашу фантомную запись в истории и обновляем её реальными данными
+                    const activeRes = state.analysisHistory.find(r => r.id === analysisId);
+                    if (activeRes) {
+                        const serverData = statusData.algorithm_data || {};
+                        const resultFiles = serverData.result_files || {};
 
-                    state.activeResult = {
-                        id: analysisId,
-                        timestamp: new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }),
-                        type: state.selectedNN.type,
-                        itemName: state.selectedItem.name,
-                        nnName: state.selectedNN.name,
-                        hasPolygon: state.selectedItem.type === 'area' || state.selectedItem.type === 'polygon',
-                        resultViewType: serverData.result_view_type || determineResultViewType(state),
-                        polygonOpacity: serverData.polygon_opacity ?? 0.5,
-                        aeroOverlayOpacity: serverData.aero_overlay_opacity ?? 0.6,
-                        snapshotDates: serverData.snapshot_dates || [],
-                        snapshotIndex: serverData.snapshot_index || 0,
-                        rangeStart: serverData.range_start || 0,
-                        rangeEnd: serverData.range_end || (serverData.snapshot_dates?.length - 1) || 0,
-                        deepAnalysisEnabled: serverData.deep_analysis_enabled || false,
-                        metrics: serverData.metrics || {},
-                        maskUrl: serverData.mask_url || null,
-                        algorithmData: serverData
-                    };
+                        activeRes.status = 'completed';
+                        activeRes.metrics = serverData.metrics || {};
+                        activeRes.maskUrl = resultFiles.mask_url || null;
+                        activeRes.algorithmData = serverData;
 
-                    // Добавляем успешный анализ в историю (в начало)
-                    state.analysisHistory.unshift(state.activeResult);
-                    state.currentResultIndex = 0;
+                        // Триггерим реактивность Alpine, чтобы HTML перерисовался
+                        state.activeResult = { ...activeRes };
+                    }
 
                     if (window.showToast) window.showToast("✅ Анализ успешно завершен!", "success");
 
-                    // Переключаем интерфейс в режим результата
-                    if (callbacks.switchMode) callbacks.switchMode('result', state, callbacks);
-
-                // --- СЦЕНАРИЙ Б: АЛГОРИТМ УПАЛ С ОШИБКОЙ ---
                 } else if (statusData.status === 'failed') {
                     clearInterval(pollInterval);
                     state.isAnalysisRunning = false;
-                    const errorMsg = statusData.error_message || "Неизвестная ошибка алгоритма";
-                    console.error("Ошибка анализа:", errorMsg);
+                    const errorMsg = statusData.error_message || "Неизвестная ошибка";
                     if (window.showToast) window.showToast(`❌ Ошибка: ${errorMsg}`, "error");
-                }
-                // Если status === 'running' или 'pending', просто ждем следующего тика setInterval
 
+                    // Удаляем фантомную запись, если анализ упал
+                    state.analysisHistory = state.analysisHistory.filter(r => r.id !== analysisId);
+                    if (state.activeResult?.id === analysisId) state.activeResult = null;
+                }
             } catch (pollError) {
                 console.error("Ошибка сети при опросе статуса:", pollError);
             }
-        }, 2000); // Опрос каждые 2 секунды
+        }, 2000);
 
     } catch (error) {
         state.isAnalysisRunning = false;
-        // 👇 Сбрасываем и при ошибке, чтобы можно было попробовать снова
         state.activationMethod = null;
         console.error("Критическая ошибка запуска анализа:", error);
         if (window.showToast) window.showToast(error.message, "error");

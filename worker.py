@@ -141,28 +141,25 @@ def execute_task(analysis_id):
         # 4. УСПЕШНОЕ ЗАВЕРШЕНИЕ: Сохраняем результаты в БД
         analysis.status = "completed"
 
-        # Объединяем метрики и пути к файлам в единый JSON для фронта
-        if not analysis.algorithm_data:
-            analysis.algorithm_data = {}
+        # 🚨 КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ (SQLAlchemy JSON Trap)
+        # Мы не меняем словарь по ключам, а создаем новый и перезаписываем его целиком!
+        current_data = analysis.algorithm_data or {}
 
-        analysis.algorithm_data["result_files"] = {
+        current_data["result_files"] = {
+            "original_url": result_data.get("original_url"),
             "mask_url": result_data.get("mask_url"),
             "heatmap_url": result_data.get("heatmap_url"),
             "overlay_url": result_data.get("overlay_url")
         }
+        current_data["metrics"] = result_data.get("metrics", {})
+        current_data["classes_found"] = result_data.get("classes_found", {})
+        current_data["intermediate_masks"] = result_data.get("intermediate_masks", [])
 
-        # 🆕 Безопасно сохраняем промежуточные маски
-        intermediate_masks = result_data.get("intermediate_masks", [])
-        analysis.algorithm_data["intermediate_masks"] = intermediate_masks
-
-        analysis.algorithm_data["metrics"] = result_data.get("metrics", {})
-        analysis.algorithm_data["classes_found"] = result_data.get("classes_found", {})
+        # ПЕРЕЗАПИСЫВАЕМ ЦЕЛИКОМ -> Это триггерит SQLAlchemy на реальное обновление БД!
+        analysis.algorithm_data = current_data
 
         db.session.commit()
-
-        # Безопасный вывод лога (используем .get, чтобы избежать KeyError)
-        mask_count = len(analysis.algorithm_data.get("intermediate_masks", []))
-        print(f"[Worker] 🎉 Задача #{analysis_id} УСПЕШНО ЗАВЕРШЕНА! (Создано {mask_count} промежуточных масок)")
+        print(f"[Worker] 🎉 Задача #{analysis_id} УСПЕШНО ЗАВЕРШЕНА! Данные реально ушли в БД.")
 
     except Exception as e:
         print(f"[Worker] 💥 КРИТИЧЕСКАЯ ОШИБКА В ЗАДАЧЕ #{analysis_id}: {str(e)}")

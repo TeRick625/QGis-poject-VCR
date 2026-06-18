@@ -32,10 +32,10 @@ def normalize_coords_for_gee(coords):
     if isinstance(coords, str): coords = json.loads(coords)
     ring = coords[0] if isinstance(coords[0][0], list) else coords
     first_pt = ring[0]
+
     if abs(first_pt[0]) <= 90 and abs(first_pt[1]) > 90:
         ring = [[pt[1], pt[0]] for pt in ring]
     return [ring]
-
 
 # =========================
 # ОСНОВНАЯ ФУНКЦИЯ АЛГОРИТМА
